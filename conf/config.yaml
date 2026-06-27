@@ -1,0 +1,9 @@
+defaults:
+  - model: hf_causal_lm
+  - scheduler: heuristic
+  - telemetry: default
+  - execution: default
+  - benchmark: prompt_smoke
+  - _self_
+
+experiment_name: computeos_baseline

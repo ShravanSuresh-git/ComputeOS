@@ -1,0 +1,5 @@
+name: distilgpt2
+revision: null
+torch_dtype: auto
+device_map: null
+trust_remote_code: false

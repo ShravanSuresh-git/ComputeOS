@@ -1,0 +1,4 @@
+name: heuristic
+parameters:
+  confidence_threshold: 0.85
+  entropy_threshold: 1.5

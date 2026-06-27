@@ -1,0 +1,4 @@
+max_new_tokens: 32
+use_cache: true
+seed: 17
+autocast: false

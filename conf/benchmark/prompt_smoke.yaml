@@ -1,0 +1,5 @@
+name: prompt_smoke
+prompts:
+  - ComputeOS is
+batch_size: 1
+limit: null

@@ -1,0 +1,8 @@
+enabled: true
+capture_activations: true
+capture_attention_entropy: true
+capture_memory: true
+log_to_wandb: false
+wandb_project: computeos
+wandb_entity: null
+sample_rate: 1.0
