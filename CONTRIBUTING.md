@@ -3,6 +3,10 @@
 Thanks for improving ComputeOS. The project is designed for research velocity
 with production habits.
 
+Before proposing architectural or runtime changes, read
+[MAINTAINER_CHARTER.md](MAINTAINER_CHARTER.md). It defines the project vision,
+non-goals, subsystem boundaries, and review bar.
+
 ## Local Setup
 
 ```bash
@@ -26,7 +30,9 @@ downloads, GPU hardware, W&B credentials, or Hugging Face authentication in CI.
 
 - Keep policy code under `src/computeos/scheduling/`.
 - Do not mutate model weights in scheduler code.
+- Do not directly execute inference from scheduler code.
 - Return explicit `SchedulerDecision` objects with useful reasons and metadata.
+- Document required telemetry and backend capabilities.
 - Add a Hydra config under `conf/scheduler/`.
 - Add focused unit tests for the policy.
 

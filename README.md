@@ -67,6 +67,7 @@ CI runs the unit tests on Python 3.12 for pushes and pull requests to `main`.
 
 ## Strategy Documents
 
+- [MAINTAINER_CHARTER.md](MAINTAINER_CHARTER.md)
 - [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)
 - [RFC_COMPUTEOS_V2.md](RFC_COMPUTEOS_V2.md)
 - [RESEARCH_ROADMAP.md](RESEARCH_ROADMAP.md)
