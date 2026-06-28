@@ -1,14 +1,29 @@
 from __future__ import annotations
 
+import math
 import unittest
 
 from computeos.benchmarks.base import BenchmarkItem, BenchmarkResult
+from computeos.benchmarks.perplexity import PerplexityBenchmark
+from computeos.benchmarks.registry import default_benchmark_registry
 from computeos.benchmarks.reporting import export_benchmark_report, rows_from_results
 from computeos.benchmarks.wikitext import WikitextPerplexityBenchmark
-from computeos.benchmarks.registry import default_benchmark_registry
 from computeos.config.schema import BenchmarkConfig
 from computeos.execution.engine import ExecutionResult
 from computeos.telemetry.metrics import ModelTelemetry
+
+
+class MockPerplexityEngine:
+    def generate(self, prompt: str) -> ExecutionResult:
+        telemetry = ModelTelemetry(model_name="mock")
+        telemetry.metadata["log_prob_per_token"] = [-0.5, -0.5, -0.5]
+        telemetry.metadata["tokens_generated"] = 3
+        return ExecutionResult(
+            prompt=prompt,
+            generated_text="generated",
+            telemetry=telemetry,
+            raw_outputs={},
+        )
 
 
 class BenchmarkTests(unittest.TestCase):
@@ -82,6 +97,14 @@ class BenchmarkTests(unittest.TestCase):
             self.assertIn("hello \\| world", paths["markdown"].read_text(encoding="utf-8"))
             self.assertIn("&lt;tag&gt; &amp; value", paths["html"].read_text(encoding="utf-8"))
             self.assertIn(r"\&", paths["latex"].read_text(encoding="utf-8"))
+
+    def test_perplexity_benchmark_score(self) -> None:
+        benchmark = PerplexityBenchmark(prompts=["hello"])
+
+        result = benchmark.run(MockPerplexityEngine())[0]
+
+        self.assertAlmostEqual(result.score or 0.0, math.exp(0.5), places=4)
+        self.assertEqual(result.metadata["tokens_generated"], 3)
 
 
 if __name__ == "__main__":

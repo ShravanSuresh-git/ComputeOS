@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import torch
 from transformers import (
@@ -39,16 +39,21 @@ def load_hf_causal_lm(config: ModelConfig) -> LoadedModel:
     if config.device_map is not None:
         model_kwargs["device_map"] = config.device_map
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        config.name,
-        revision=config.revision,
-        trust_remote_code=config.trust_remote_code,
+    tokenizer_factory = cast(Any, AutoTokenizer)
+    tokenizer = cast(
+        PreTrainedTokenizerBase,
+        tokenizer_factory.from_pretrained(
+            config.name,
+            revision=config.revision,
+            trust_remote_code=config.trust_remote_code,
+        ),
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     model = AutoModelForCausalLM.from_pretrained(config.name, **model_kwargs)
-    model.eval()
+    model_module = cast(torch.nn.Module, model)
+    model_module.eval()
     return LoadedModel(model=model, tokenizer=tokenizer, name=config.name)
 
 

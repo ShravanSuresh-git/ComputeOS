@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from math import exp, log1p
+from typing import Any
 
 from computeos.scheduling.base import Scheduler
 from computeos.scheduling.context import SchedulerContext
@@ -129,6 +130,19 @@ class PredictiveValueScheduler(Scheduler):
         layer = context.layer_telemetry
         if layer is None:
             return SchedulerDecision.record_only("pvs waiting for layer telemetry")
+        if (
+            context.backend_capabilities is not None
+            and not context.backend_capabilities.supports_early_exit
+        ):
+            return SchedulerDecision(
+                action=SchedulerAction.RECORD_ONLY,
+                layer_name=layer.layer_name,
+                reason="backend does not support early_exit",
+                metadata={
+                    "algorithm": "predictive_value_scheduling",
+                    "backend_blocked": True,
+                },
+            )
 
         self._update_resource_state(layer)
         features = self._features(context, layer)
@@ -341,3 +355,62 @@ def _sigmoid(value: float) -> float:
         return 1.0 / (1.0 + z)
     z = exp(value)
     return z / (1.0 + z)
+
+
+def calibrate_weights(
+    traces: list[Any],
+    objective: str = "maximize_utility",
+) -> PVSValueWeights:
+    """Fit PVS value weights from oracle utilities via non-negative least squares."""
+
+    from scipy.optimize import nnls
+
+    from computeos.replay.oracle_scheduler import OracleObjective, OracleScheduler
+
+    oracle = OracleScheduler()
+    obj = OracleObjective(objective)
+
+    feature_rows: list[list[float]] = []
+    utility_values: list[float] = []
+
+    feature_keys = [
+        "entropy",
+        "uncertainty",
+        "activation_norm",
+        "layer_variance",
+        "attention_entropy",
+        "decision_pressure",
+    ]
+
+    for trace in traces:
+        plan = oracle.plan(trace, objective=obj)
+        oracle_utils = {decision.index: decision.utility for decision in plan.decisions}
+        for index, decision in enumerate(trace.decisions):
+            features_raw = decision.metadata.get("features")
+            if not isinstance(features_raw, dict):
+                continue
+            row = [float(features_raw.get(key, 0.0)) for key in feature_keys]
+            utility = oracle_utils.get(index, 0.0)
+            feature_rows.append(row)
+            utility_values.append(utility)
+
+    if not feature_rows:
+        return PVSValueWeights()
+
+    import numpy as np
+
+    matrix = np.array(feature_rows, dtype=np.float64)
+    targets = np.array(utility_values, dtype=np.float64)
+    weights, _ = nnls(matrix, targets)
+    total = weights.sum()
+    if total > 0:
+        weights = weights / total
+
+    return PVSValueWeights(
+        entropy=float(weights[0]),
+        uncertainty=float(weights[1]),
+        activation_norm=float(weights[2]),
+        layer_variance=float(weights[3]),
+        attention_entropy=float(weights[4]),
+        decision_pressure=float(weights[5]),
+    )

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 import torch
 import torch.nn as nn
 
+from computeos.config.schema import ExecutionConfig, TelemetryConfig
 from computeos.execution.controlled import ControlledForwardRuntime, RuntimeBudget
+from computeos.execution.engine import InferenceEngine
 from computeos.scheduling.base import Scheduler
 from computeos.scheduling.context import SchedulerContext
 from computeos.scheduling.decision import SchedulerAction, SchedulerDecision
@@ -37,6 +40,45 @@ class DecisionScheduler(Scheduler):
             layer_name=context.layer_name,
             reason=f"{point}:{action}",
         )
+
+
+class AlwaysExitScheduler(Scheduler):
+    def reset(self) -> None:
+        pass
+
+    def decide(self, context: SchedulerContext) -> SchedulerDecision:
+        return SchedulerDecision(
+            action=SchedulerAction.EARLY_EXIT,
+            layer_name=context.layer_name,
+            reason="test early exit",
+        )
+
+
+class FakeTokenizer:
+    eos_token_id: int | None = None
+
+    def __call__(self, prompt: str, return_tensors: str) -> dict[str, torch.Tensor]:
+        return {
+            "input_ids": torch.tensor([[1, 2]], dtype=torch.long),
+            "attention_mask": torch.ones((1, 2), dtype=torch.long),
+        }
+
+    def decode(self, token_ids: list[int], skip_special_tokens: bool = True) -> str:
+        return " ".join(str(token_id) for token_id in token_ids)
+
+
+class FakeCausalLM(nn.Module):
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        use_cache: bool = True,
+        output_attentions: bool = False,
+        return_dict: bool = True,
+    ) -> SimpleNamespace:
+        logits = torch.zeros((1, input_ids.shape[1], 4), dtype=torch.float32)
+        logits[:, -1, 2] = 10.0
+        return SimpleNamespace(logits=logits)
 
 
 class ControlledRuntimeTests(unittest.TestCase):
@@ -82,6 +124,21 @@ class ControlledRuntimeTests(unittest.TestCase):
         self.assertEqual(float(result.output.item()), 1.0)
         self.assertEqual(len(result.telemetry.layers), 1)
         self.assertEqual(result.action_results[0].reason, "max layer budget reached")
+
+    def test_inference_engine_early_exit_applied(self) -> None:
+        engine = InferenceEngine(
+            model=FakeCausalLM(),
+            tokenizer=FakeTokenizer(),
+            model_name="fake",
+            scheduler=AlwaysExitScheduler(),
+            execution_config=ExecutionConfig(max_new_tokens=4),
+            telemetry_config=TelemetryConfig(),
+        )
+
+        result = engine.generate("hello")
+
+        self.assertTrue(result.telemetry.metadata["early_exit_applied"])
+        self.assertEqual(result.telemetry.metadata["tokens_generated"], 1)
 
 
 if __name__ == "__main__":

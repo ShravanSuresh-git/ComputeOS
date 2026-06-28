@@ -1,0 +1,6 @@
+name: perplexity
+prompts:
+  - "The future of inference is"
+  - "Adaptive compute scheduling allows"
+limit: null
+parameters: {}

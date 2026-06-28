@@ -20,6 +20,7 @@ dependencies = [
   "psutil>=5.9",
   "pydantic>=2.7",
   "rich>=13.7",
+  "scipy>=1.13",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +37,8 @@ dev = [
   "mypy>=1.10",
   "datasets>=2.20",
   "matplotlib>=3.8",
+  "scipy-stubs>=1.13",
+  "types-psutil>=5.9",
 ]
 
 [project.scripts]
@@ -51,7 +54,6 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "ANN"]
-ignore = ["ANN101", "ANN102"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -61,3 +63,4 @@ packages = ["computeos"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["src"]

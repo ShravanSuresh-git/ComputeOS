@@ -7,7 +7,8 @@ running unit tests should not download benchmark packages or data.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from importlib import import_module
+from typing import Any, cast
 
 from computeos.benchmarks.base import Benchmark, BenchmarkItem
 
@@ -25,14 +26,14 @@ class WikitextPerplexityBenchmark(Benchmark):
 
     def items(self) -> list[BenchmarkItem]:
         try:
-            from datasets import load_dataset
+            datasets = cast(Any, import_module("datasets"))
         except ImportError as exc:
             raise ImportError(
                 "The WikiText benchmark requires the optional `datasets` package. "
                 "Install it with `pip install datasets`."
             ) from exc
 
-        dataset = load_dataset(self.dataset_name, self.dataset_config, split=self.split)
+        dataset = datasets.load_dataset(self.dataset_name, self.dataset_config, split=self.split)
         items: list[BenchmarkItem] = []
         for row in dataset:
             text = str(row.get(self.text_field, "")).strip()

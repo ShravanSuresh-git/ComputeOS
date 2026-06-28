@@ -3,11 +3,12 @@ from __future__ import annotations
 import unittest
 
 from computeos.config.schema import SchedulerConfig
+from computeos.execution import BackendCapabilities
 from computeos.scheduling.context import SchedulerContext
 from computeos.scheduling.decision import SchedulerAction
 from computeos.scheduling.pvs import (
-    PVSResourceBudgets,
     PredictiveValueScheduler,
+    PVSResourceBudgets,
 )
 from computeos.scheduling.registry import default_scheduler_registry
 from computeos.telemetry.collector import TelemetryCollector
@@ -88,6 +89,24 @@ class PredictiveValueSchedulerTests(unittest.TestCase):
         self.assertEqual(decision.action, SchedulerAction.EARLY_EXIT)
         self.assertTrue(decision.metadata["stopping_event"])
         self.assertEqual(decision.reason, "latency budget exhausted")
+
+    def test_pvs_respects_backend_capabilities(self) -> None:
+        scheduler = PredictiveValueScheduler(
+            budgets=PVSResourceBudgets(max_latency_ms=0.0001),
+        )
+        layer = _layer(latency_ms=1.0)
+        context = SchedulerContext(
+            step_index=0,
+            layer_name=layer.layer_name,
+            layer_telemetry=layer,
+            model_telemetry=ModelTelemetry(model_name="tiny"),
+            backend_capabilities=BackendCapabilities(supports_early_exit=False),
+        )
+
+        decision = scheduler.decide(context)
+
+        self.assertEqual(decision.action, SchedulerAction.RECORD_ONLY)
+        self.assertTrue(decision.metadata["backend_blocked"])
 
     def test_pvs_replay_and_telemetry_trace_extraction(self) -> None:
         scheduler = PredictiveValueScheduler()

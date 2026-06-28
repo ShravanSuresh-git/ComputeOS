@@ -189,12 +189,11 @@ def quality_proxy(telemetry: ModelTelemetry) -> float:
 
     if telemetry.confidence_scores:
         return sum(telemetry.confidence_scores) / len(telemetry.confidence_scores)
-    pvs_values = [
-        float(decision.metadata["prediction"]["expected_improvement"])
-        for decision in telemetry.scheduler_decisions
-        if isinstance(decision.metadata.get("prediction"), dict)
-        and "expected_improvement" in decision.metadata["prediction"]
-    ]
+    pvs_values: list[float] = []
+    for decision in telemetry.scheduler_decisions:
+        prediction = decision.metadata.get("prediction")
+        if isinstance(prediction, dict) and "expected_improvement" in prediction:
+            pvs_values.append(float(prediction["expected_improvement"]))
     if pvs_values:
         return sum(pvs_values) / len(pvs_values)
     return 0.5

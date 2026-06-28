@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 from computeos.replay.counterfactual_engine import CounterfactualResult
 from computeos.replay.trace_loader import ReplayTrace, RuntimeEventType
@@ -65,15 +66,16 @@ class ReplayVisualizer:
         return _save(fig, output_path)
 
 
-def _save(fig, output_path: str | Path) -> Path:
+def _save(fig: object, output_path: str | Path) -> Path:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
-    fig.savefig(path)
+    figure = cast(Any, fig)
+    figure.tight_layout()
+    figure.savefig(path)
     try:
         import matplotlib.pyplot as plt
 
-        plt.close(fig)
+        plt.close(figure)
     except ImportError:
         pass
     return path

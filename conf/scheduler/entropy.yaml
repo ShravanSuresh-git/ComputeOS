@@ -1,0 +1,3 @@
+name: entropy
+parameters:
+  threshold: 1.0

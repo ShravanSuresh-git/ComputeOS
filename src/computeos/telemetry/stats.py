@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import torch
 
 from computeos.telemetry.metrics import ActivationStats
 
 
-def first_tensor(value: Any) -> torch.Tensor | None:
+def first_tensor(value: object) -> torch.Tensor | None:
     """Return the first tensor inside common PyTorch output structures."""
 
     if isinstance(value, torch.Tensor):
@@ -27,7 +25,7 @@ def first_tensor(value: Any) -> torch.Tensor | None:
     return None
 
 
-def activation_stats(value: Any) -> ActivationStats | None:
+def activation_stats(value: object) -> ActivationStats | None:
     """Compute stable activation summary statistics without retaining tensors."""
 
     tensor = first_tensor(value)
@@ -45,7 +43,7 @@ def activation_stats(value: Any) -> ActivationStats | None:
     )
 
 
-def attention_entropy(value: Any) -> float | None:
+def attention_entropy(value: object) -> float | None:
     """Estimate mean attention entropy when attention probabilities are present."""
 
     tensor = _find_attention_tensor(value)
@@ -57,7 +55,7 @@ def attention_entropy(value: Any) -> float | None:
     return float(entropy.item())
 
 
-def _find_attention_tensor(value: Any) -> torch.Tensor | None:
+def _find_attention_tensor(value: object) -> torch.Tensor | None:
     if isinstance(value, torch.Tensor) and value.ndim >= 3:
         last_dim_sum = value.detach().float().sum(dim=-1).mean()
         if torch.isfinite(last_dim_sum) and abs(float(last_dim_sum.item()) - 1.0) < 0.1:

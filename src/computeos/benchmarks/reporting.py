@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import csv
+import json
 from dataclasses import asdict, dataclass, fields
 from html import escape
-import json
 from pathlib import Path
 
 from computeos.benchmarks.base import BenchmarkResult

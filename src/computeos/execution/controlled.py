@@ -8,9 +8,8 @@ actions in tests, demos, and future model adapters.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from time import perf_counter
-from typing import Any
 
 import torch
 import torch.nn as nn
@@ -47,7 +46,7 @@ class ActionResult:
 class ControlledExecutionResult:
     """Output and telemetry from controlled layer execution."""
 
-    output: Any
+    output: object
     telemetry: ModelTelemetry
     action_results: tuple[ActionResult, ...]
 
@@ -77,7 +76,7 @@ class ControlledForwardRuntime:
         self._budget = budget or RuntimeBudget()
 
     @torch.inference_mode()
-    def run(self, inputs: Any) -> ControlledExecutionResult:
+    def run(self, inputs: object) -> ControlledExecutionResult:
         """Run controlled forward execution."""
 
         self._scheduler.reset()

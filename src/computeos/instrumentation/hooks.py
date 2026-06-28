@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from time import perf_counter
-from typing import Any
+from typing import TYPE_CHECKING
 
 import psutil
 import torch
@@ -17,6 +18,9 @@ from computeos.telemetry.collector import TelemetryCollector
 from computeos.telemetry.metrics import LayerTelemetry
 from computeos.telemetry.stats import activation_stats, attention_entropy
 
+if TYPE_CHECKING:
+    from computeos.execution import BackendCapabilities
+
 
 class HookedTransformerMonitor:
     """Register hooks on transformer blocks and route observations to a scheduler."""
@@ -27,17 +31,19 @@ class HookedTransformerMonitor:
         scheduler: Scheduler,
         collector: TelemetryCollector,
         telemetry_config: TelemetryConfig,
+        capabilities: BackendCapabilities | None = None,
     ) -> None:
         self._model = model
         self._scheduler = scheduler
         self._collector = collector
         self._telemetry_config = telemetry_config
+        self._capabilities = capabilities
         self._handles: list[torch.utils.hooks.RemovableHandle] = []
         self._starts: dict[str, float] = {}
         self._step_index = 0
         self._process = psutil.Process()
 
-    def __enter__(self) -> "HookedTransformerMonitor":
+    def __enter__(self) -> HookedTransformerMonitor:
         self.register()
         return self
 
@@ -59,14 +65,17 @@ class HookedTransformerMonitor:
         self._handles.clear()
         self._starts.clear()
 
-    def _make_pre_hook(self, name: str) -> Any:
-        def hook(_module: nn.Module, _inputs: tuple[Any, ...]) -> None:
+    def _make_pre_hook(self, name: str) -> Callable[[nn.Module, tuple[object, ...]], None]:
+        def hook(_module: nn.Module, _inputs: tuple[object, ...]) -> None:
             self._starts[name] = perf_counter()
 
         return hook
 
-    def _make_post_hook(self, name: str) -> Any:
-        def hook(module: nn.Module, _inputs: tuple[Any, ...], output: Any) -> None:
+    def _make_post_hook(
+        self,
+        name: str,
+    ) -> Callable[[nn.Module, tuple[object, ...], object], None]:
+        def hook(module: nn.Module, _inputs: tuple[object, ...], output: object) -> None:
             started_at = self._starts.pop(name, perf_counter())
             latency_ms = (perf_counter() - started_at) * 1000.0
             layer_telemetry = LayerTelemetry(
@@ -95,6 +104,7 @@ class HookedTransformerMonitor:
                 layer_name=name,
                 layer_telemetry=layer_telemetry,
                 model_telemetry=self._collector.model_telemetry,
+                backend_capabilities=self._capabilities,
             )
             decision = self._scheduler.decide(context)
             self._collector.record_decision(decision)

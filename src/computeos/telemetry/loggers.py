@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import csv
-from dataclasses import asdict
 import json
+from abc import ABC, abstractmethod
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,7 @@ class TelemetryLogger(ABC):
 
     def close(self) -> None:
         """Release logger resources."""
+        return None
 
 
 class InMemoryTelemetryLogger(TelemetryLogger):

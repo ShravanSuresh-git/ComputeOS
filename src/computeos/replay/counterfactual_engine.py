@@ -22,6 +22,7 @@ from computeos.replay.trace_loader import (
     layer_memory_mb,
     trace_utility,
 )
+from computeos.telemetry.metrics import LayerTelemetry
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ class CounterfactualEngine:
         online_utilities = _decision_utilities(trace)
         oracle_utilities = [decision.utility for decision in oracle.decisions]
         regret = compute_regret(oracle_utilities, online_utilities)
-        actions = [decision.action for decision in trace.decisions]
+        actions = [str(decision.action) for decision in trace.decisions]
         oracle_actions = [decision.action for decision in oracle.decisions]
         metrics = ReplayMetrics(
             utility=utility,
@@ -272,7 +273,7 @@ def _identity(trace: ReplayTrace, reason: str) -> tuple[float, float, float, flo
 
 def _from_layers(
     trace: ReplayTrace,
-    layers: list,
+    layers: list[LayerTelemetry],
     reason: str,
 ) -> tuple[float, float, float, float, str]:
     latency = sum(max(0.0, layer.latency_ms) for layer in layers)

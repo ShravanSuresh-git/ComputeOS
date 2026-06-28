@@ -27,7 +27,7 @@ class SchedulerDecision:
     metadata: dict[str, object] = field(default_factory=dict)
 
     @classmethod
-    def record_only(cls, reason: str = "observability pass") -> "SchedulerDecision":
+    def record_only(cls, reason: str = "observability pass") -> SchedulerDecision:
         """Create a no-op decision used by baseline policies."""
 
         return cls(action=SchedulerAction.RECORD_ONLY, reason=reason)

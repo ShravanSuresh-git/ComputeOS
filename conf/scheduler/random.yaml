@@ -1,0 +1,4 @@
+name: random
+parameters:
+  exit_prob: 0.1
+  seed: 42

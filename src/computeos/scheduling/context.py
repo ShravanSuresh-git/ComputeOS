@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from computeos.execution import BackendCapabilities
 from computeos.telemetry.metrics import LayerTelemetry, ModelTelemetry
 
 
@@ -18,3 +19,4 @@ class SchedulerContext:
     model_telemetry: ModelTelemetry
     model_inputs: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
+    backend_capabilities: BackendCapabilities | None = None

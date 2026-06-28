@@ -30,3 +30,4 @@ class Scheduler(ABC):
         Online or RL schedulers can override this method to update replay buffers,
         reward traces, or calibration statistics.
         """
+        return None

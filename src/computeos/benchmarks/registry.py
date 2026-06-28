@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from computeos.benchmarks.base import Benchmark
+from computeos.benchmarks.perplexity import PerplexityBenchmark
 from computeos.benchmarks.prompt_smoke import PromptSmokeBenchmark
 from computeos.benchmarks.wikitext import wikitext_from_parameters
 from computeos.config.schema import BenchmarkConfig
@@ -36,8 +37,16 @@ def _prompt_smoke_factory(config: BenchmarkConfig) -> Benchmark:
     return PromptSmokeBenchmark(prompts=config.prompts, limit=config.limit)
 
 
+def _perplexity_factory(config: BenchmarkConfig) -> Benchmark:
+    return PerplexityBenchmark(
+        prompts=config.prompts or ["The future of inference is"],
+        limit=config.limit,
+    )
+
+
 def default_benchmark_registry() -> BenchmarkRegistry:
     registry = BenchmarkRegistry()
+    registry.register("perplexity", _perplexity_factory)
     registry.register("prompt_smoke", _prompt_smoke_factory)
     registry.register("wikitext_perplexity", _wikitext_perplexity_factory)
     return registry

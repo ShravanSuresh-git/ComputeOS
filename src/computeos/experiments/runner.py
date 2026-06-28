@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from computeos.benchmarks.registry import default_benchmark_registry
 from computeos.config.schema import (
@@ -44,21 +44,39 @@ def run_experiment(config: ComputeOSConfig) -> list[dict[str, Any]]:
     )
     benchmark = default_benchmark_registry().create(config.benchmark)
     logger = _build_logger(config)
+    results = []
     try:
         results = benchmark.run(engine)
         for result in results:
             logger.log(result.execution.telemetry)
-        return [
-            {
-                "prompt": result.item.prompt,
-                "generated_text": result.execution.generated_text,
-                "score": result.score,
-                "telemetry": result.execution.telemetry,
-            }
-            for result in results
-        ]
     finally:
         logger.close()
+    payload = [
+        {
+            "prompt": result.item.prompt,
+            "generated_text": result.execution.generated_text,
+            "score": result.score,
+            "telemetry": result.execution.telemetry,
+        }
+        for result in results
+    ]
+    _snapshot_artifacts(config, payload)
+    return payload
+
+
+def _snapshot_artifacts(config: ComputeOSConfig, results: list[dict[str, Any]]) -> None:
+    try:
+        from computeos.experiments.artifacts import ArtifactStore
+
+        store = ArtifactStore(output_dir=Path("outputs"))
+        store.snapshot_config(asdict(config))
+        store.snapshot_env()
+        for result in results:
+            telemetry = result.get("telemetry")
+            if telemetry is not None:
+                store.snapshot_telemetry(telemetry)
+    except Exception:
+        return
 
 
 def _build_logger(config: ComputeOSConfig) -> TelemetryLogger:
@@ -91,16 +109,17 @@ def _build_export_logger(config: TelemetryConfig) -> TelemetryLogger:
     raise ValueError(f"Unsupported telemetry export format: {export_format}")
 
 
-def _from_omegaconf(cfg: Any) -> ComputeOSConfig:
+def _from_omegaconf(cfg: object) -> ComputeOSConfig:
+    cfg_any = cast(Any, cfg)
     return ComputeOSConfig(
-        model=ModelConfig(**dict(cfg.model)),
+        model=ModelConfig(**dict(cfg_any.model)),
         scheduler=SchedulerConfig(
-            name=str(cfg.scheduler.name),
-            parameters=dict(cfg.scheduler.get("parameters", {})),
+            name=str(cfg_any.scheduler.name),
+            parameters=dict(cfg_any.scheduler.get("parameters", {})),
         ),
-        telemetry=TelemetryConfig(**dict(cfg.telemetry)),
-        execution=ExecutionConfig(**dict(cfg.execution)),
-        benchmark=BenchmarkConfig(**dict(cfg.benchmark)),
+        telemetry=TelemetryConfig(**dict(cfg_any.telemetry)),
+        execution=ExecutionConfig(**dict(cfg_any.execution)),
+        benchmark=BenchmarkConfig(**dict(cfg_any.benchmark)),
     )
 
 

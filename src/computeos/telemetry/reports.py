@@ -3,23 +3,15 @@
 from __future__ import annotations
 
 from io import StringIO
-from typing import Any
 
-try:
-    from rich.console import Console
-    from rich.table import Table
-except ImportError:
-    Console = None  # type: ignore[assignment]
-    Table = None  # type: ignore[assignment]
+from rich.console import Console
+from rich.table import Table
 
 from computeos.telemetry.metrics import ModelTelemetry
 
 
 def render_telemetry_report(telemetry: ModelTelemetry, max_layers: int = 16) -> str:
     """Render a compact terminal report for one inference run."""
-
-    if Console is None or Table is None:
-        return _plain_report(telemetry, max_layers=max_layers)
 
     output = StringIO()
     console = Console(file=output, force_terminal=False, width=120)
@@ -31,19 +23,12 @@ def render_telemetry_report(telemetry: ModelTelemetry, max_layers: int = 16) -> 
 def print_telemetry_report(telemetry: ModelTelemetry, max_layers: int = 16) -> None:
     """Print a compact terminal report for one inference run."""
 
-    if Console is None or Table is None:
-        print(_plain_report(telemetry, max_layers=max_layers))
-        return
-
     console = Console()
     console.print(_summary_table(telemetry))
     console.print(_layer_table(telemetry, max_layers=max_layers))
 
 
-def _summary_table(telemetry: ModelTelemetry) -> Any:
-    if Table is None:
-        raise RuntimeError("Rich is not available.")
-
+def _summary_table(telemetry: ModelTelemetry) -> object:
     table = Table(title="ComputeOS Telemetry Summary")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", justify="right")
@@ -61,10 +46,7 @@ def _summary_table(telemetry: ModelTelemetry) -> Any:
     return table
 
 
-def _layer_table(telemetry: ModelTelemetry, max_layers: int) -> Any:
-    if Table is None:
-        raise RuntimeError("Rich is not available.")
-
+def _layer_table(telemetry: ModelTelemetry, max_layers: int) -> object:
     table = Table(title=f"Layer Events First {min(max_layers, len(telemetry.layers))}")
     table.add_column("#", justify="right")
     table.add_column("Layer")

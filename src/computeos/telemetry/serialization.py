@@ -22,6 +22,12 @@ def model_telemetry_to_dict(telemetry: ModelTelemetry) -> dict[str, Any]:
     return payload
 
 
+def flatten_telemetry_to_dict(telemetry: ModelTelemetry) -> dict[str, Any]:
+    """Return a JSON-friendly telemetry record for artifact snapshots."""
+
+    return model_telemetry_to_dict(telemetry)
+
+
 def layer_telemetry_to_row(
     telemetry: ModelTelemetry,
     layer: LayerTelemetry,
