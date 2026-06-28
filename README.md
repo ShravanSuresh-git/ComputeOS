@@ -65,6 +65,14 @@ ruff check src tests examples
 
 CI runs the unit tests on Python 3.12 for pushes and pull requests to `main`.
 
+## Strategy Documents
+
+- [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)
+- [RFC_COMPUTEOS_V2.md](RFC_COMPUTEOS_V2.md)
+- [RESEARCH_ROADMAP.md](RESEARCH_ROADMAP.md)
+- [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)
+- [REFACTORING_PLAN.md](REFACTORING_PLAN.md)
+
 ## Extension Points
 
 1. Add a scheduler by subclassing `computeos.scheduling.base.Scheduler`.
