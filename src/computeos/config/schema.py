@@ -36,6 +36,9 @@ class TelemetryConfig:
     wandb_project: str = "computeos"
     wandb_entity: str | None = None
     sample_rate: float = 1.0
+    export_path: str | None = None
+    export_format: str | None = None
+    pretty_report: bool = True
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,7 @@ class BenchmarkConfig:
     prompts: list[str] = field(default_factory=lambda: ["ComputeOS is"])
     batch_size: int = 1
     limit: int | None = None
+    parameters: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

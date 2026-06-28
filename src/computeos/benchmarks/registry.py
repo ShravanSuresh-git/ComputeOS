@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from computeos.benchmarks.base import Benchmark
 from computeos.benchmarks.prompt_smoke import PromptSmokeBenchmark
+from computeos.benchmarks.wikitext import wikitext_from_parameters
 from computeos.config.schema import BenchmarkConfig
 
 BenchmarkFactory = Callable[[BenchmarkConfig], Benchmark]
@@ -38,4 +39,9 @@ def _prompt_smoke_factory(config: BenchmarkConfig) -> Benchmark:
 def default_benchmark_registry() -> BenchmarkRegistry:
     registry = BenchmarkRegistry()
     registry.register("prompt_smoke", _prompt_smoke_factory)
+    registry.register("wikitext_perplexity", _wikitext_perplexity_factory)
     return registry
+
+
+def _wikitext_perplexity_factory(config: BenchmarkConfig) -> Benchmark:
+    return wikitext_from_parameters(config.parameters, limit=config.limit)

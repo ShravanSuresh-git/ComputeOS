@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import csv
 from dataclasses import asdict
+import json
+from pathlib import Path
 from typing import Any
 
 from computeos.telemetry.metrics import ModelTelemetry
+from computeos.telemetry.serialization import layer_telemetry_to_row, model_telemetry_to_dict
 
 
 class TelemetryLogger(ABC):
@@ -28,6 +32,71 @@ class InMemoryTelemetryLogger(TelemetryLogger):
 
     def log(self, telemetry: ModelTelemetry) -> None:
         self.records.append(telemetry)
+
+
+class CompositeTelemetryLogger(TelemetryLogger):
+    """Fan-out logger for experiments that need multiple sinks."""
+
+    def __init__(self, loggers: list[TelemetryLogger]) -> None:
+        self._loggers = loggers
+
+    def log(self, telemetry: ModelTelemetry) -> None:
+        for logger in self._loggers:
+            logger.log(telemetry)
+
+    def close(self) -> None:
+        for logger in self._loggers:
+            logger.close()
+
+
+class JsonTelemetryLogger(TelemetryLogger):
+    """Write model telemetry records as a JSON array or JSONL stream."""
+
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+        self._records: list[dict[str, Any]] = []
+
+    def log(self, telemetry: ModelTelemetry) -> None:
+        self._records.append(model_telemetry_to_dict(telemetry))
+
+    def close(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        if self._path.suffix == ".jsonl":
+            with self._path.open("w", encoding="utf-8") as file:
+                for record in self._records:
+                    file.write(json.dumps(record) + "\n")
+            return
+        with self._path.open("w", encoding="utf-8") as file:
+            json.dump(self._records, file, indent=2)
+
+
+class CsvTelemetryLogger(TelemetryLogger):
+    """Write one CSV row per layer event."""
+
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+        self._rows: list[dict[str, object]] = []
+        self._run_index = 0
+
+    def log(self, telemetry: ModelTelemetry) -> None:
+        for layer_index, layer in enumerate(telemetry.layers):
+            self._rows.append(
+                layer_telemetry_to_row(
+                    telemetry=telemetry,
+                    layer=layer,
+                    run_index=self._run_index,
+                    layer_index=layer_index,
+                )
+            )
+        self._run_index += 1
+
+    def close(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        fieldnames = list(_CSV_FIELDNAMES)
+        with self._path.open("w", encoding="utf-8", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(self._rows)
 
 
 class WandbTelemetryLogger(TelemetryLogger):
@@ -72,3 +141,29 @@ class WandbTelemetryLogger(TelemetryLogger):
 
     def close(self) -> None:
         self._run.finish()
+
+
+_CSV_FIELDNAMES = (
+    "run_index",
+    "model_name",
+    "layer_index",
+    "layer_name",
+    "layer_type",
+    "latency_ms",
+    "attention_entropy",
+    "memory_allocated_bytes",
+    "memory_reserved_bytes",
+    "process_rss_bytes",
+    "activation_mean",
+    "activation_std",
+    "activation_min",
+    "activation_max",
+    "activation_l2_norm",
+    "activation_numel",
+    "total_latency_ms",
+    "peak_memory_bytes",
+    "peak_process_rss_bytes",
+    "scheduler_decision_count",
+    "token_confidence_mean",
+    "scheduler_confidence_mean",
+)

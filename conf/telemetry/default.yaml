@@ -6,3 +6,6 @@ log_to_wandb: false
 wandb_project: computeos
 wandb_entity: null
 sample_rate: 1.0
+export_path: null
+export_format: null
+pretty_report: true

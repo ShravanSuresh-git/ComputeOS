@@ -1,0 +1,10 @@
+name: wikitext_perplexity
+prompts: []
+batch_size: 1
+limit: 32
+parameters:
+  dataset_name: wikitext
+  dataset_config: wikitext-2-raw-v1
+  split: test
+  text_field: text
+  min_chars: 20

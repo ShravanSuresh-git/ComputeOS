@@ -6,8 +6,6 @@ prints the telemetry that matters when validating a new scheduler or runtime.
 
 from __future__ import annotations
 
-from statistics import mean
-
 from computeos.config.schema import (
     BenchmarkConfig,
     ComputeOSConfig,
@@ -17,6 +15,7 @@ from computeos.config.schema import (
     TelemetryConfig,
 )
 from computeos.experiments.runner import run_experiment
+from computeos.telemetry.reports import print_telemetry_report
 
 
 def main() -> None:
@@ -43,15 +42,10 @@ def main() -> None:
 
     result = run_experiment(config)[0]
     telemetry = result["telemetry"]
-    latencies = [layer.latency_ms for layer in telemetry.layers]
 
     print(f"Prompt: {result['prompt']}")
     print(f"Generated: {result['generated_text']}")
-    print(f"Total latency: {telemetry.total_latency_ms:.3f} ms")
-    print(f"Layer events: {len(telemetry.layers)}")
-    print(f"Scheduler decisions: {len(telemetry.scheduler_decisions)}")
-    print(f"Mean layer latency: {mean(latencies):.3f} ms")
-    print(f"Peak process RSS: {telemetry.peak_process_rss_bytes} bytes")
+    print_telemetry_report(telemetry, max_layers=8)
 
 
 if __name__ == "__main__":

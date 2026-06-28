@@ -72,8 +72,12 @@ Benchmarks implement `Benchmark.items()` and optionally `Benchmark.score()`.
 The smoke benchmark runs a list of prompts. Standard benchmark integrations
 should live behind this interface so execution and telemetry remain reusable.
 
-W&B support is implemented as a telemetry logger with lazy imports. Tests and
-offline workflows can use `InMemoryTelemetryLogger`.
+W&B, JSON, and CSV support are implemented as telemetry loggers. W&B imports are
+lazy, JSON export writes model-level records, and CSV export writes one row per
+layer event. Tests and offline workflows can use `InMemoryTelemetryLogger`.
+
+Human-readable terminal output is handled by `computeos.telemetry.reports`, which
+keeps reporting separate from collection and export.
 
 ## Extension Checklist
 

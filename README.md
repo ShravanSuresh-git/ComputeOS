@@ -54,6 +54,8 @@ python examples/run_tiny_gpt2.py
 For offline smoke tests, the unit tests use tiny local PyTorch modules and do not
 download Hugging Face models.
 
+More detail is available in [docs/quickstart.md](docs/quickstart.md).
+
 ## Development
 
 ```bash
@@ -73,3 +75,5 @@ CI runs the unit tests on Python 3.12 for pushes and pull requests to `main`.
 5. Add telemetry sinks by implementing `computeos.telemetry.loggers.TelemetryLogger`.
 
 See [docs/architecture.md](docs/architecture.md) for the full architecture.
+See [docs/scheduler_guide.md](docs/scheduler_guide.md) for policy examples and
+research extension patterns.
