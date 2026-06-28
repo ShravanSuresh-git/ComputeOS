@@ -81,6 +81,18 @@ CI runs the unit tests on Python 3.12 for pushes and pull requests to `main`.
 - [REFACTORING_PLAN.md](REFACTORING_PLAN.md)
 - [docs/predictive_value_scheduling.md](docs/predictive_value_scheduling.md)
 - [docs/counterfactual_runtime_intelligence.md](docs/counterfactual_runtime_intelligence.md)
+- [docs/runtime_enforcement.md](docs/runtime_enforcement.md)
+- [docs/benchmarking.md](docs/benchmarking.md)
+- [docs/diagrams.md](docs/diagrams.md)
+- [FINAL_RELEASE_REPORT.md](FINAL_RELEASE_REPORT.md)
+
+## Demo
+
+Run the deterministic release demo:
+
+```bash
+PYTHONPATH=src python demo.py
+```
 
 ## Extension Points
 

@@ -118,6 +118,7 @@ class ReplayCRITests(unittest.TestCase):
             self.assertTrue(paths["csv"].exists())
             self.assertTrue(paths["markdown"].exists())
             self.assertTrue(paths["latex"].exists())
+            self.assertTrue(paths["html"].exists())
             payload = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
             self.assertEqual(payload[0]["policy"], "static")
 

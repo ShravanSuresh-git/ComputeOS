@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use ComputeOS in research, please cite it."
+title: "ComputeOS: A Research Framework for Adaptive Runtime Inference"
+authors:
+  - family-names: "Suresh"
+    given-names: "Shravan"
+version: "1.0.0"
+date-released: "2026-06-28"
+license: "MIT"
+repository-code: "https://github.com/ShravanSuresh-git/ComputeOS"

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import unittest
 
+from computeos.benchmarks.base import BenchmarkItem, BenchmarkResult
+from computeos.benchmarks.reporting import export_benchmark_report, rows_from_results
 from computeos.benchmarks.wikitext import WikitextPerplexityBenchmark
 from computeos.benchmarks.registry import default_benchmark_registry
 from computeos.config.schema import BenchmarkConfig
+from computeos.execution.engine import ExecutionResult
+from computeos.telemetry.metrics import ModelTelemetry
 
 
 class BenchmarkTests(unittest.TestCase):
@@ -23,6 +27,30 @@ class BenchmarkTests(unittest.TestCase):
             )
         )
         self.assertIsInstance(benchmark, WikitextPerplexityBenchmark)
+
+    def test_benchmark_report_exports_all_publication_formats(self) -> None:
+        import tempfile
+
+        telemetry = ModelTelemetry(model_name="tiny", total_latency_ms=1.0)
+        result = BenchmarkResult(
+            item=BenchmarkItem(prompt="hello"),
+            execution=ExecutionResult(
+                prompt="hello",
+                generated_text="hello world",
+                telemetry=telemetry,
+                raw_outputs={},
+            ),
+            score=0.5,
+        )
+        rows = rows_from_results([result])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = export_benchmark_report(rows, temp_dir)
+
+            self.assertTrue(paths["csv"].exists())
+            self.assertTrue(paths["json"].exists())
+            self.assertTrue(paths["markdown"].exists())
+            self.assertTrue(paths["latex"].exists())
+            self.assertTrue(paths["html"].exists())
 
 
 if __name__ == "__main__":

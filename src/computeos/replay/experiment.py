@@ -89,6 +89,7 @@ class CounterfactualExperiment:
             "csv": output / f"{stem}.csv",
             "markdown": output / f"{stem}.md",
             "latex": output / f"{stem}.tex",
+            "html": output / f"{stem}.html",
         }
         paths["json"].write_text(
             json.dumps([asdict(row) for row in rows], indent=2),
@@ -100,6 +101,7 @@ class CounterfactualExperiment:
             writer.writerows(asdict(row) for row in rows)
         paths["markdown"].write_text(to_markdown(rows), encoding="utf-8")
         paths["latex"].write_text(to_latex(rows), encoding="utf-8")
+        paths["html"].write_text(to_html(rows), encoding="utf-8")
         return paths
 
 
@@ -124,6 +126,21 @@ def to_latex(rows: list[PolicyComparison]) -> str:
         values = [_format(value) for value in asdict(row).values()]
         lines.append(" & ".join(values) + " \\\\")
     lines.extend([" \\bottomrule", "\\end{tabular}", ""])
+    return "\n".join(lines)
+
+
+def to_html(rows: list[PolicyComparison]) -> str:
+    headers = list(asdict(rows[0]).keys()) if rows else []
+    if not headers:
+        return "<table></table>\n"
+    lines = ["<table>", "  <thead><tr>"]
+    lines.extend(f"    <th>{header}</th>" for header in headers)
+    lines.extend(["  </tr></thead>", "  <tbody>"])
+    for row in rows:
+        lines.append("    <tr>")
+        lines.extend(f"      <td>{_format(value)}</td>" for value in asdict(row).values())
+        lines.append("    </tr>")
+    lines.extend(["  </tbody>", "</table>", ""])
     return "\n".join(lines)
 
 
