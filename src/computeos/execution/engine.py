@@ -163,7 +163,7 @@ class InferenceEngine:
         telemetry.metadata["log_prob_per_token"] = log_prob_per_token
         telemetry.metadata["all_scores_raw"] = log_prob_per_token
 
-        generated_text = self._tokenizer.decode(generated_ids, skip_special_tokens=True)
+        generated_text = _decode_text(self._tokenizer, generated_ids)
         return ExecutionResult(
             prompt=prompt,
             generated_text=generated_text,
@@ -230,3 +230,10 @@ def _sequence_tensor(prompt_input_ids: torch.Tensor, generated_ids: list[int]) -
         return prompt_input_ids.detach().cpu()
     generated = torch.tensor([generated_ids], device=prompt_input_ids.device)
     return torch.cat([prompt_input_ids, generated], dim=-1).detach().cpu()
+
+
+def _decode_text(tokenizer: PreTrainedTokenizerBase, token_ids: list[int]) -> str:
+    decoded = tokenizer.decode(token_ids, skip_special_tokens=True)
+    if isinstance(decoded, list):
+        return "".join(decoded)
+    return decoded
