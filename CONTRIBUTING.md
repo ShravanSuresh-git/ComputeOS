@@ -23,6 +23,9 @@ python -m unittest discover -s tests
 ruff check src tests examples
 ```
 
+If you have not installed the package in editable mode yet, use
+`PYTHONPATH=src python -m unittest discover -s tests`.
+
 Default tests should stay offline and deterministic. Do not require benchmark
 downloads, GPU hardware, W&B credentials, or Hugging Face authentication in CI.
 

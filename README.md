@@ -69,6 +69,9 @@ python -m unittest discover -s tests
 ruff check src tests examples
 ```
 
+For an uninstalled checkout, run tests with `PYTHONPATH=src python -m unittest
+discover -s tests`.
+
 CI runs the unit tests on Python 3.12 for pushes and pull requests to `main`.
 
 ## Strategy Documents
@@ -85,10 +88,11 @@ CI runs the unit tests on Python 3.12 for pushes and pull requests to `main`.
 - [docs/benchmarking.md](docs/benchmarking.md)
 - [docs/diagrams.md](docs/diagrams.md)
 - [FINAL_RELEASE_REPORT.md](FINAL_RELEASE_REPORT.md)
+- [RELEASE_AUDIT.md](RELEASE_AUDIT.md)
 
 ## Demo
 
-Run the deterministic release demo:
+Run the download-free release demo:
 
 ```bash
 PYTHONPATH=src python demo.py

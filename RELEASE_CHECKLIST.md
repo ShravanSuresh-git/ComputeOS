@@ -2,26 +2,27 @@
 
 ## Validation
 
-- [ ] Unit tests pass.
-- [ ] Demo runs without large downloads.
-- [ ] Controlled runtime enforcement tests pass.
-- [ ] Replay and CRI tests pass.
-- [ ] Benchmark report exports work.
-- [ ] Documentation links resolve.
+- [x] Unit tests pass.
+- [x] Demo runs without large downloads.
+- [x] Controlled runtime enforcement tests pass.
+- [x] Replay and CRI tests pass.
+- [x] Benchmark report exports work.
+- [x] Documentation links resolve.
 
 ## Documentation
 
-- [ ] README updated.
-- [ ] Quickstart updated.
-- [ ] Runtime enforcement documented.
-- [ ] Benchmarks documented.
-- [ ] Paper template updated.
-- [ ] Final release report generated.
+- [x] README updated.
+- [x] Quickstart updated.
+- [x] Runtime enforcement documented.
+- [x] Benchmarks documented.
+- [x] Paper template updated.
+- [x] Final release report generated.
+- [x] Release audit generated.
 
 ## GitHub
 
-- [ ] Changelog updated.
+- [x] Changelog updated.
 - [ ] Version tag created.
 - [ ] Release notes drafted.
-- [ ] Citation metadata checked.
-- [ ] Security and conduct files present.
+- [x] Citation metadata checked.
+- [x] Security and conduct files present.

@@ -1,4 +1,4 @@
-"""ComputeOS v1.0 deterministic release demo.
+"""ComputeOS v1.0 download-free release demo.
 
 This demo avoids large model downloads. It proves the core release path:
 controlled runtime enforcement, telemetry, replay, counterfactual analysis, and
@@ -43,6 +43,7 @@ class DemoScheduler(Scheduler):
 
 
 def main() -> None:
+    torch.manual_seed(17)
     model = nn.Sequential(nn.Linear(4, 4), nn.ReLU(), nn.Linear(4, 4))
     result = ControlledForwardRuntime(model, DemoScheduler(), model_name="demo").run(torch.ones(1, 4))
     trace = TraceLoader().from_telemetry(result.telemetry)
@@ -62,7 +63,7 @@ def main() -> None:
     print(f"Output shape: {tuple(result.output.shape)}")
     print(f"Executed layers: {len(result.telemetry.layers)}")
     print(f"Applied actions: {len(result.action_results)}")
-    print(f"Counterfactual utility: {counterfactual.predicted_utility:.6f}")
+    print(f"Counterfactual utility proxy: {counterfactual.predicted_utility:.3f}")
     print(f"Reports written to: {output_dir}")
     print(", ".join(f"{name}={path.name}" for name, path in paths.items()))
 

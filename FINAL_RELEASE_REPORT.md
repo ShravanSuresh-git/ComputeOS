@@ -6,7 +6,7 @@ ComputeOS has been hardened into a v1.0-style adaptive inference research
 framework. The release now includes a controlled action-applying runtime,
 Predictive Value Scheduling, Counterfactual Runtime Intelligence, replay,
 oracle analysis, regret metrics, benchmark exports, documentation, diagrams,
-GitHub community files, a paper template, and a deterministic demo.
+GitHub community files, a paper template, and a download-free demo.
 
 ## Major Modifications
 
@@ -44,7 +44,7 @@ Rationale: publication workflows need structured artifacts and tables.
 
 ### Demonstration
 
-- Added `demo.py`, a deterministic no-download demo showing controlled runtime
+- Added `demo.py`, a download-free demo showing controlled runtime
   enforcement, replay, CRI, and report export.
 
 ### Visualization and Diagrams

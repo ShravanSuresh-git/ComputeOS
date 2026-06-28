@@ -52,6 +52,37 @@ class BenchmarkTests(unittest.TestCase):
             self.assertTrue(paths["latex"].exists())
             self.assertTrue(paths["html"].exists())
 
+    def test_benchmark_report_handles_empty_rows(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = export_benchmark_report([], temp_dir)
+
+            self.assertIn("prompt", paths["csv"].read_text(encoding="utf-8"))
+            self.assertEqual(paths["json"].read_text(encoding="utf-8"), "[]")
+
+    def test_benchmark_report_escapes_table_content(self) -> None:
+        import tempfile
+
+        telemetry = ModelTelemetry(model_name="tiny", total_latency_ms=1.0)
+        result = BenchmarkResult(
+            item=BenchmarkItem(prompt="hello | world"),
+            execution=ExecutionResult(
+                prompt="hello | world",
+                generated_text="<tag> & value",
+                telemetry=telemetry,
+                raw_outputs={},
+            ),
+            score=0.5,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = export_benchmark_report(rows_from_results([result]), temp_dir)
+
+            self.assertIn("hello \\| world", paths["markdown"].read_text(encoding="utf-8"))
+            self.assertIn("&lt;tag&gt; &amp; value", paths["html"].read_text(encoding="utf-8"))
+            self.assertIn(r"\&", paths["latex"].read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
+from html import escape
 import json
 from pathlib import Path
 
@@ -64,10 +65,9 @@ def export_benchmark_report(
     payload = [asdict(row) for row in rows]
     paths["json"].write_text(json.dumps(payload, indent=2), encoding="utf-8")
     with paths["csv"].open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=list(payload[0].keys()) if payload else [])
-        if payload:
-            writer.writeheader()
-            writer.writerows(payload)
+        writer = csv.DictWriter(file, fieldnames=_benchmark_report_fieldnames())
+        writer.writeheader()
+        writer.writerows(payload)
     paths["markdown"].write_text(to_markdown(rows), encoding="utf-8")
     paths["latex"].write_text(to_latex(rows), encoding="utf-8")
     paths["html"].write_text(to_html(rows), encoding="utf-8")
@@ -76,20 +76,16 @@ def export_benchmark_report(
 
 def to_markdown(rows: list[BenchmarkReportRow]) -> str:
     payload = [asdict(row) for row in rows]
-    if not payload:
-        return "\n"
-    headers = list(payload[0].keys())
+    headers = list(payload[0].keys()) if payload else _benchmark_report_fieldnames()
     lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"]
     for row in payload:
-        lines.append("| " + " | ".join(_format(value) for value in row.values()) + " |")
+        lines.append("| " + " | ".join(_format_markdown(value) for value in row.values()) + " |")
     return "\n".join(lines) + "\n"
 
 
 def to_latex(rows: list[BenchmarkReportRow]) -> str:
     payload = [asdict(row) for row in rows]
-    if not payload:
-        return "\\begin{tabular}{l}\\end{tabular}\n"
-    headers = list(payload[0].keys())
+    headers = list(payload[0].keys()) if payload else _benchmark_report_fieldnames()
     lines = [
         "\\begin{tabular}{" + "l" * len(headers) + "}",
         " \\toprule",
@@ -97,22 +93,20 @@ def to_latex(rows: list[BenchmarkReportRow]) -> str:
         " \\midrule",
     ]
     for row in payload:
-        lines.append(" & ".join(_format(value) for value in row.values()) + " \\\\")
+        lines.append(" & ".join(_format_latex(value) for value in row.values()) + " \\\\")
     lines.extend([" \\bottomrule", "\\end{tabular}", ""])
     return "\n".join(lines)
 
 
 def to_html(rows: list[BenchmarkReportRow]) -> str:
     payload = [asdict(row) for row in rows]
-    if not payload:
-        return "<table></table>\n"
-    headers = list(payload[0].keys())
+    headers = list(payload[0].keys()) if payload else _benchmark_report_fieldnames()
     lines = ["<table>", "  <thead><tr>"]
-    lines.extend(f"    <th>{header}</th>" for header in headers)
+    lines.extend(f"    <th>{escape(header)}</th>" for header in headers)
     lines.extend(["  </tr></thead>", "  <tbody>"])
     for row in payload:
         lines.append("    <tr>")
-        lines.extend(f"      <td>{_format(value)}</td>" for value in row.values())
+        lines.extend(f"      <td>{escape(_format(value))}</td>" for value in row.values())
         lines.append("    </tr>")
     lines.extend(["  </tbody>", "</table>", ""])
     return "\n".join(lines)
@@ -124,3 +118,28 @@ def _format(value: object) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _format_markdown(value: object) -> str:
+    return _format(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+
+
+def _format_latex(value: object) -> str:
+    text = _format(value)
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    return "".join(replacements.get(character, character) for character in text)
+
+
+def _benchmark_report_fieldnames() -> list[str]:
+    return [field.name for field in fields(BenchmarkReportRow)]

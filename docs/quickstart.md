@@ -18,6 +18,12 @@ python -m pip install -e ".[dev]"
 python -m unittest discover -s tests
 ```
 
+From an uninstalled checkout, use:
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests
+```
+
 The tests use tiny local PyTorch modules, so they do not download Hugging Face
 models or benchmark datasets.
 

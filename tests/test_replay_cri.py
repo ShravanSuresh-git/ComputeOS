@@ -122,6 +122,39 @@ class ReplayCRITests(unittest.TestCase):
             payload = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
             self.assertEqual(payload[0]["policy"], "static")
 
+    def test_counterfactual_experiment_exports_empty_tables(self) -> None:
+        experiment = CounterfactualExperiment()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = experiment.export([], temp_dir)
+
+            self.assertEqual(json.loads(Path(paths["json"]).read_text(encoding="utf-8")), [])
+            self.assertIn("policy", Path(paths["csv"]).read_text(encoding="utf-8"))
+
+    def test_counterfactual_experiment_escapes_table_content(self) -> None:
+        experiment = CounterfactualExperiment()
+        rows = [
+            CounterfactualExperiment().default_policy_comparison(
+                TraceLoader().from_telemetry(_telemetry())
+            )[0]
+        ]
+        rows[0] = type(rows[0])(
+            policy="pvs | <unsafe>",
+            utility=rows[0].utility,
+            latency_ms=rows[0].latency_ms,
+            compute_units=rows[0].compute_units,
+            memory_mb=rows[0].memory_mb,
+            budget_efficiency=rows[0].budget_efficiency,
+            oracle_gap=rows[0].oracle_gap,
+            normalized_regret=rows[0].normalized_regret,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = experiment.export(rows, temp_dir)
+
+            self.assertIn("pvs \\| <unsafe>", Path(paths["markdown"]).read_text(encoding="utf-8"))
+            self.assertIn("pvs | &lt;unsafe&gt;", Path(paths["html"]).read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

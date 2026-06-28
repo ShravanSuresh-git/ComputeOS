@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
+from html import escape
 import json
 from pathlib import Path
 
@@ -96,7 +97,10 @@ class CounterfactualExperiment:
             encoding="utf-8",
         )
         with paths["csv"].open("w", encoding="utf-8", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=list(asdict(rows[0]).keys()))
+            writer = csv.DictWriter(
+                file,
+                fieldnames=[field.name for field in fields(PolicyComparison)],
+            )
             writer.writeheader()
             writer.writerows(asdict(row) for row in rows)
         paths["markdown"].write_text(to_markdown(rows), encoding="utf-8")
@@ -106,16 +110,16 @@ class CounterfactualExperiment:
 
 
 def to_markdown(rows: list[PolicyComparison]) -> str:
-    headers = list(asdict(rows[0]).keys()) if rows else []
+    headers = [field.name for field in fields(PolicyComparison)]
     lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"]
     for row in rows:
-        values = [_format(value) for value in asdict(row).values()]
+        values = [_format_markdown(value) for value in asdict(row).values()]
         lines.append("| " + " | ".join(values) + " |")
     return "\n".join(lines) + "\n"
 
 
 def to_latex(rows: list[PolicyComparison]) -> str:
-    headers = list(asdict(rows[0]).keys()) if rows else []
+    headers = [field.name for field in fields(PolicyComparison)]
     lines = [
         "\\begin{tabular}{" + "l" * len(headers) + "}",
         " \\toprule",
@@ -123,22 +127,20 @@ def to_latex(rows: list[PolicyComparison]) -> str:
         " \\midrule",
     ]
     for row in rows:
-        values = [_format(value) for value in asdict(row).values()]
+        values = [_format_latex(value) for value in asdict(row).values()]
         lines.append(" & ".join(values) + " \\\\")
     lines.extend([" \\bottomrule", "\\end{tabular}", ""])
     return "\n".join(lines)
 
 
 def to_html(rows: list[PolicyComparison]) -> str:
-    headers = list(asdict(rows[0]).keys()) if rows else []
-    if not headers:
-        return "<table></table>\n"
+    headers = [field.name for field in fields(PolicyComparison)]
     lines = ["<table>", "  <thead><tr>"]
-    lines.extend(f"    <th>{header}</th>" for header in headers)
+    lines.extend(f"    <th>{escape(header)}</th>" for header in headers)
     lines.extend(["  </tr></thead>", "  <tbody>"])
     for row in rows:
         lines.append("    <tr>")
-        lines.extend(f"      <td>{_format(value)}</td>" for value in asdict(row).values())
+        lines.extend(f"      <td>{escape(_format(value))}</td>" for value in asdict(row).values())
         lines.append("    </tr>")
     lines.extend(["  </tbody>", "</table>", ""])
     return "\n".join(lines)
@@ -161,3 +163,24 @@ def _format(value: object) -> str:
     if isinstance(value, float):
         return f"{value:.6f}"
     return str(value)
+
+
+def _format_markdown(value: object) -> str:
+    return _format(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+
+
+def _format_latex(value: object) -> str:
+    text = _format(value)
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    return "".join(replacements.get(character, character) for character in text)
