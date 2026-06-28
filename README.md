@@ -80,6 +80,7 @@ CI runs the unit tests on Python 3.12 for pushes and pull requests to `main`.
 - [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)
 - [REFACTORING_PLAN.md](REFACTORING_PLAN.md)
 - [docs/predictive_value_scheduling.md](docs/predictive_value_scheduling.md)
+- [docs/counterfactual_runtime_intelligence.md](docs/counterfactual_runtime_intelligence.md)
 
 ## Extension Points
 
