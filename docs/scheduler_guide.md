@@ -40,6 +40,22 @@ Useful first version:
 3. Emit confidence in `SchedulerDecision.confidence`.
 4. Record thresholds and calibration metadata in `SchedulerDecision.metadata`.
 
+## Predictive Value Scheduling
+
+Predictive Value Scheduling is the first research-grade scheduler design in
+ComputeOS. It treats adaptive inference as an optimal stopping problem and emits
+decisions based on expected marginal improvement minus expected resource cost.
+
+Use it from Hydra:
+
+```bash
+computeos-run scheduler=pvs
+```
+
+See [predictive_value_scheduling.md](predictive_value_scheduling.md) for the
+mathematical formulation, runtime architecture, telemetry, replay support,
+benchmark plan, and visualization workflow.
+
 ## Reinforcement Learning Scheduler
 
 An RL scheduler can override `observe` to track rewards and online state.

@@ -51,6 +51,12 @@ Run the tiny Hugging Face smoke example:
 python examples/run_tiny_gpt2.py
 ```
 
+Run Predictive Value Scheduling:
+
+```bash
+python examples/run_pvs_tiny_gpt2.py
+```
+
 For offline smoke tests, the unit tests use tiny local PyTorch modules and do not
 download Hugging Face models.
 
@@ -73,6 +79,7 @@ CI runs the unit tests on Python 3.12 for pushes and pull requests to `main`.
 - [RESEARCH_ROADMAP.md](RESEARCH_ROADMAP.md)
 - [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)
 - [REFACTORING_PLAN.md](REFACTORING_PLAN.md)
+- [docs/predictive_value_scheduling.md](docs/predictive_value_scheduling.md)
 
 ## Extension Points
 

@@ -4,10 +4,12 @@ from computeos.scheduling.base import Scheduler
 from computeos.scheduling.context import SchedulerContext
 from computeos.scheduling.decision import SchedulerDecision
 from computeos.scheduling.heuristic import HeuristicScheduler
+from computeos.scheduling.pvs import PredictiveValueScheduler
 from computeos.scheduling.registry import SchedulerRegistry, default_scheduler_registry
 
 __all__ = [
     "HeuristicScheduler",
+    "PredictiveValueScheduler",
     "Scheduler",
     "SchedulerContext",
     "SchedulerDecision",

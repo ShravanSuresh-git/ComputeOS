@@ -1,0 +1,21 @@
+name: pvs
+parameters:
+  utility_scale: 1.0
+  cost_scale: 1.0
+  smoothing: 0.2
+  budgets:
+    max_latency_ms: 250.0
+    max_memory_mb: 4096.0
+    max_compute_units: 512.0
+    min_net_value: 0.0
+  value_weights:
+    entropy: 0.25
+    uncertainty: 0.30
+    activation_norm: 0.15
+    layer_variance: 0.15
+    attention_entropy: 0.10
+    decision_pressure: 0.05
+  cost_weights:
+    compute: 0.45
+    latency: 0.35
+    memory: 0.20
