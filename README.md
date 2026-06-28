@@ -1,5 +1,7 @@
 # ComputeOS
 
+[![CI](https://github.com/ShravanSuresh-git/ComputeOS/actions/workflows/ci.yml/badge.svg)](https://github.com/ShravanSuresh-git/ComputeOS/actions/workflows/ci.yml)
+
 ComputeOS is a production-quality research framework for dynamic inference compute
 scheduling in transformer models. It is not a chatbot or end-user application. The
 goal is to make it easy to instrument transformer execution, collect detailed
@@ -43,8 +45,23 @@ pip install -e ".[dev]"
 computeos-run model.name=distilgpt2 benchmark.prompts='["The future of systems is"]'
 ```
 
+Run the tiny Hugging Face smoke example:
+
+```bash
+python examples/run_tiny_gpt2.py
+```
+
 For offline smoke tests, the unit tests use tiny local PyTorch modules and do not
 download Hugging Face models.
+
+## Development
+
+```bash
+python -m unittest discover -s tests
+ruff check src tests examples
+```
+
+CI runs the unit tests on Python 3.12 for pushes and pull requests to `main`.
 
 ## Extension Points
 

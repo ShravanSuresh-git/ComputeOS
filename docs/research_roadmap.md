@@ -16,3 +16,9 @@ research milestones are:
 
 Each milestone should keep the current scheduler interface intact unless there
 is evidence that a new execution boundary is required.
+
+## Repository Hygiene
+
+The public repository includes CI, an MIT license, and a tiny GPT-2 example.
+Future pull requests should include focused unit tests for scheduler behavior
+and should avoid requiring benchmark downloads in the default CI path.
