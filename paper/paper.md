@@ -88,29 +88,36 @@ runtime scheduling.
 
 ## 8. Experiments
 
-We ran a smoke-scale controlled Hugging Face experiment on `distilgpt2` using
-three WikiText-103 validation prompts and three generated tokens per prompt.
-The controlled backend executed 18 transformer blocks for the full baseline
-(six layers times three tokens) and recorded per-layer telemetry, PVS decisions,
-confidence scores, log probabilities, latency, memory, and estimated compute.
-These numbers are sufficient to validate the pipeline and JSON artifact schema;
-they should not be interpreted as publication-scale performance claims.
+We ran a controlled Hugging Face sweep on `distilgpt2` using ten WikiText-103
+validation prompts and twenty generated tokens per prompt. Conditions were run
+in randomized order after one warm-up pass to eliminate JIT compilation bias.
+The full baseline executed 120 transformer blocks per prompt on average, while
+all PVS presets now triggered actual early exits and executed fewer layers than
+baseline.
 
 | Condition | Mean latency (ms) | Mean perplexity | Mean layers | Mean early exits | Latency reduction vs baseline | Perplexity delta |
 |---|---:|---:|---:|---:|---:|---:|
-| baseline | 471.95 | 15.918 | 18.00 | 0.00 | 0.0% | 0.000 |
-| pvs_loose | 72.08 | 15.918 | 18.00 | 0.00 | 84.7% | 0.000 |
-| pvs_medium | 57.87 | 15.918 | 18.00 | 0.00 | 87.7% | 0.000 |
-| pvs_tight | 58.81 | 15.918 | 18.00 | 0.00 | 87.5% | 0.000 |
+| baseline | 417.91 | 1.377 | 120.00 | 0.00 | 0.0% | 0.000 |
+| pvs_loose | 71.39 | 4.971 | 20.00 | 1.00 | 82.9% | 3.594 |
+| pvs_medium | 66.15 | 5.032 | 16.20 | 1.00 | 84.2% | 3.654 |
+| pvs_tight | 173.46 | 5.498 | 12.00 | 1.00 | 58.5% | 4.121 |
+| token_cap | 26.47 | 2.880 | 6.00 | 1.00 | 93.7% | 1.503 |
 
-The PVS conditions showed at least 84.7% lower measured wall-clock latency in
-this smoke run, with no perplexity delta and no applied early exits. Because all
-conditions executed the same number of layers, this result primarily reflects
-first-run warm-up/cache effects and measurement ordering rather than adaptive
-compute savings. The important outcome is that the controlled experiment path,
-artifact generation, CRI validation, and calibration loop all run end to end;
-the next benchmark pass should randomize condition order, include warm-up, and
-increase prompt/token counts before drawing research conclusions.
+The calibrated compute budgets now exercise the controlled runtime rather than
+only recording telemetry. `pvs_loose`, `pvs_medium`, and `pvs_tight` stop from
+compute-budget exhaustion, reducing average executed layers from 120.00 to
+20.00, 16.20, and 12.00 respectively. The `token_cap` preset triggers
+value-based exits with the decision reason "expected net value below stopping
+threshold" and reaches the most aggressive allocation, averaging 6.00 executed
+layers and 93.7% lower measured latency than baseline.
+
+Limitations of this benchmark: `distilgpt2` is tiny, so these results validate
+the framework mechanics rather than production-scale serving behavior. Compute
+units are abstract activation-size units, not measured FLOPs or hardware
+counters. The perplexity deltas show a real quality/compute trade-off, and the
+latency numbers should not be extrapolated to larger production models without
+broader benchmarks, randomized repetitions, GPU measurements, and task-level
+quality evaluation.
 
 ## 9. Ablations
 

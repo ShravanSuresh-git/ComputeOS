@@ -16,7 +16,7 @@ from computeos.replay import (
 )
 from computeos.replay.experiment import CounterfactualExperiment
 from computeos.replay.regret import compute_regret
-from computeos.replay.trace_loader import RuntimeEventType
+from computeos.replay.trace_loader import ReplayTrace, RuntimeEventType
 from computeos.scheduling.decision import SchedulerAction, SchedulerDecision
 from computeos.telemetry.metrics import ActivationStats, LayerTelemetry, ModelTelemetry
 
@@ -99,6 +99,43 @@ class ReplayCRITests(unittest.TestCase):
         self.assertEqual(result.scenario.name, "continue_one_more")
         self.assertGreaterEqual(result.metrics.decision_stability, 0.0)
         self.assertGreaterEqual(result.regret.average_regret, 0.0)
+
+    def test_continue_all_estimates_more_latency_than_observed_stop(self) -> None:
+        layers = tuple(
+            LayerTelemetry(
+                layer_name=f"transformer.h.{index}",
+                layer_type="GPT2Block",
+                latency_ms=10.0,
+                activation_stats=ActivationStats(
+                    mean=0.0,
+                    std=0.1,
+                    min=-1.0,
+                    max=1.0,
+                    l2_norm=2.0,
+                    numel=1024,
+                ),
+            )
+            for index in range(3)
+        )
+        trace = ReplayTrace(
+            model_name="distilgpt2",
+            events=(),
+            layers=layers,
+            decisions=(),
+            total_latency_ms=30.0,
+            peak_memory_mb=0.0,
+            total_compute_units=3.0,
+            final_utility=0.5,
+        )
+        scenario = CounterfactualScenario(
+            name="continue_all",
+            scenario_type=ScenarioType.REPLACE_SCHEDULER,
+            scheduler_name="static",
+        )
+
+        result = CounterfactualEngine().evaluate(trace, scenario)
+
+        self.assertGreater(result.predicted_latency_ms, 30.0)
 
     def test_regret_handles_token_sequence_and_normalized_regret(self) -> None:
         regret = compute_regret([1.0, 0.8, 0.6], [0.5, 0.9, 0.2])

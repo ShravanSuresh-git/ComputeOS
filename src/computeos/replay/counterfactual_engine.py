@@ -225,7 +225,18 @@ def _replace_scheduler(
     scheduler_name: str | None,
 ) -> tuple[float, float, float, float, str]:
     if scheduler_name in {None, "static"}:
-        return _identity(trace, "static scheduler executes all observed layers")
+        layers_executed = len(trace.layers)
+        if layers_executed == 0:
+            return _identity(trace, "static scheduler has no observed layers to scale")
+        full_latency = _estimate_full_latency_ms(trace, layers_executed)
+        scale = full_latency / trace.total_latency_ms if trace.total_latency_ms > 0.0 else 1.0
+        return (
+            full_latency,
+            trace.total_compute_units * scale,
+            trace.peak_memory_mb,
+            _trace_quality(trace),
+            "static scheduler full-run latency estimated from observed layer average",
+        )
     if scheduler_name == "random":
         target = max(1, len(trace.layers) // 2)
         return _from_layers(trace, list(trace.layers[:target]), "deterministic random proxy")
@@ -269,6 +280,40 @@ def _identity(trace: ReplayTrace, reason: str) -> tuple[float, float, float, flo
         _trace_quality(trace),
         reason,
     )
+
+
+def _estimate_full_latency_ms(trace: ReplayTrace, layers_executed: int) -> float:
+    """Estimate full-run latency from observed per-layer latency."""
+
+    if layers_executed <= 0:
+        return trace.total_latency_ms
+    total_possible_layers = _total_possible_layers(trace, layers_executed)
+    return (trace.total_latency_ms / layers_executed) * total_possible_layers
+
+
+def _total_possible_layers(trace: ReplayTrace, layers_executed: int) -> int:
+    metadata_value = trace.metadata.get("total_possible_layers")
+    if isinstance(metadata_value, int) and metadata_value > 0:
+        return max(layers_executed, metadata_value)
+    if isinstance(metadata_value, float) and metadata_value > 0:
+        return max(layers_executed, int(metadata_value))
+
+    tokens_generated = trace.metadata.get("tokens_generated")
+    token_count = int(tokens_generated) if isinstance(tokens_generated, int | float) else 0
+    known_layers = _known_decoder_layer_count(trace.model_name)
+    if token_count > 0 and known_layers > 0:
+        return max(layers_executed, token_count * known_layers)
+
+    return max(layers_executed, 6)
+
+
+def _known_decoder_layer_count(model_name: str) -> int:
+    normalized = model_name.lower()
+    if "distilgpt2" in normalized:
+        return 6
+    if "gpt2" in normalized:
+        return 12
+    return 0
 
 
 def _from_layers(

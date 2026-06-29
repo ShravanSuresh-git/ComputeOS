@@ -124,6 +124,62 @@ class PredictiveValueSchedulerTests(unittest.TestCase):
         self.assertEqual(extracted[0]["layer_name"], "transformer.h.0")
         self.assertIn("expected_improvement", extracted[0]["prediction"])
 
+    def test_compute_budget_triggers_early_exit(self) -> None:
+        scheduler = PredictiveValueScheduler(
+            budgets=PVSResourceBudgets(
+                max_latency_ms=1000.0,
+                max_memory_mb=4096.0,
+                max_compute_units=4.0,
+                min_net_value=0.0,
+            )
+        )
+        layer = _layer()
+
+        first = scheduler.decide(_context(layer))
+        second = scheduler.decide(_context(layer))
+
+        self.assertEqual(first.action, SchedulerAction.CONTINUE)
+        self.assertEqual(second.action, SchedulerAction.EARLY_EXIT)
+        self.assertEqual(second.reason, "compute budget exhausted")
+
+    def test_net_value_threshold_triggers_early_exit(self) -> None:
+        scheduler = PredictiveValueScheduler(
+            budgets=PVSResourceBudgets(
+                max_latency_ms=1000.0,
+                max_memory_mb=4096.0,
+                max_compute_units=1000.0,
+                min_net_value=0.99,
+            )
+        )
+
+        decision = scheduler.decide(_context(_layer()))
+
+        self.assertEqual(decision.action, SchedulerAction.EARLY_EXIT)
+        self.assertEqual(decision.reason, "expected net value below stopping threshold")
+
+    def test_skip_layer_not_emitted_by_pvs(self) -> None:
+        scheduler = PredictiveValueScheduler(
+            budgets=PVSResourceBudgets(
+                max_latency_ms=1000.0,
+                max_memory_mb=4096.0,
+                max_compute_units=1000.0,
+                min_net_value=-1.0,
+            )
+        )
+
+        for index in range(20):
+            decision = scheduler.decide(
+                _context(
+                    _layer(
+                        latency_ms=1.0 + index,
+                        attention_entropy=1.0 + index * 0.1,
+                        l2_norm=4.0 + index,
+                    )
+                )
+            )
+
+            self.assertNotEqual(decision.action, SchedulerAction.SKIP_LAYER)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,7 +6,7 @@ parameters:
   budgets:
     max_latency_ms: 250.0
     max_memory_mb: 4096.0
-    max_compute_units: 512.0
+    max_compute_units: 60.0
     min_net_value: 0.0
   value_weights:
     entropy: 0.25
