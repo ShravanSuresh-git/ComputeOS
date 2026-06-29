@@ -8,6 +8,19 @@ goal is to make it easy to instrument transformer execution, collect detailed
 telemetry, and experiment with scheduling policies that allocate inference compute
 dynamically.
 
+## Results
+
+On `distilgpt2` with a 50-prompt reference-continuation benchmark (20 generated tokens per prompt):
+
+| Condition | Latency reduction | Mean layers executed | Oracle efficiency |
+|---|---:|---:|---:|
+| PVS-loose | 87.9% | 12.9 / 120 | 87.2% |
+| PVS-medium | 92.4% | 9.9 / 120 | 100.0% |
+| PVS-tight | 86.0% | 7.7 / 120 | 100.0% |
+| token_cap | 94.4% | 6.0 / 120 | — |
+
+PVS-medium and PVS-tight match the offline oracle's preferred utility under a balanced compute/quality objective, while reducing executed transformer layers by 92% and 94% respectively versus full inference. Results were produced by `examples/sweep_latency_quality.py` and `examples/measure_oracle_gap.py` on CPU.
+
 ![ComputeOS demo](docs/assets/computeos-demo.gif)
 
 ## Design Principles
