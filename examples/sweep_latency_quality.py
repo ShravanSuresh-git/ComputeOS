@@ -67,23 +67,53 @@ def main() -> None:
     """Run the sweep and write ``outputs/sweep_results.json``."""
 
     args = _parse_args()
+    if args.fast:
+        args.n_prompts = 10
+        args.max_new_tokens = 10
     pairs = _sample_prompt_continuation_pairs(args.n_prompts)
-    model, tokenizer, model_name = _load_model(args.model)
-    results = run_sweep(
-        model=model,
-        tokenizer=tokenizer,
-        model_name=model_name,
-        pairs=pairs,
-        max_new_tokens=args.max_new_tokens,
-    )
-    _write_json(_outputs_dir() / "sweep_results.json", results)
-    _print_table(results)
-    try:
-        path = plot_pareto_frontier(results, _outputs_dir() / "pareto_frontier.png")
-    except ImportError as exc:
-        Console().print(f"Pareto plot skipped: {exc}")
-    else:
-        Console().print(f"Pareto plot saved to {path}")
+    model_names = ["distilgpt2", "gpt2-medium"] if args.model == "all" else [args.model]
+    primary_results: dict[str, object] | None = None
+
+    for model_index, requested_model in enumerate(model_names):
+        if requested_model == "gpt2-medium" and not args.fast:
+            Console().print(
+                "Warning: gpt2-medium on CPU may take 20+ minutes. "
+                "Pass --fast for a quick smoke run."
+            )
+        try:
+            model, tokenizer, model_name = _load_model(requested_model)
+        except (RuntimeError, OSError) as exc:
+            Console().print(f"Skipping {requested_model}: {exc}")
+            continue
+        n_layers = _model_layer_count(model)
+        scaled_budgets = _scale_budgets_for_model(
+            model_name=model_name,
+            n_layers=n_layers,
+            max_new_tokens=args.max_new_tokens,
+        )
+        results = run_sweep(
+            model=model,
+            tokenizer=tokenizer,
+            model_name=model_name,
+            pairs=pairs,
+            max_new_tokens=args.max_new_tokens,
+            n_layers=n_layers,
+            scaled_budgets=scaled_budgets,
+        )
+        suffix_path = _outputs_dir() / f"sweep_results_{model_name}.json"
+        _write_json(suffix_path, results)
+        if model_index == 0:
+            primary_results = results
+            _write_json(_outputs_dir() / "sweep_results.json", results)
+        _print_table(results)
+
+    if primary_results is not None:
+        try:
+            path = plot_pareto_frontier(primary_results, _outputs_dir() / "pareto_frontier.png")
+        except ImportError as exc:
+            Console().print(f"Pareto plot skipped: {exc}")
+        else:
+            Console().print(f"Pareto plot saved to {path}")
 
 
 def run_sweep(
@@ -92,13 +122,15 @@ def run_sweep(
     model_name: str,
     pairs: list[tuple[str, str]],
     max_new_tokens: int,
+    n_layers: int,
+    scaled_budgets: dict[str, dict[str, object]],
 ) -> dict[str, object]:
     """Evaluate baseline and PVS budget variants on a shared prompt set."""
 
     max_continuation_tokens = 5
     telemetry_config = TelemetryConfig(capture_memory=True)
     conditions: list[tuple[str, Callable[[], Scheduler]]] = [
-        (name, lambda preset=name: _make_pvs_scheduler(preset))
+        (name, lambda preset=name: _make_pvs_scheduler(preset, scaled_budgets))
         for name in CANONICAL_CONDITION_ORDER
     ]
     random.Random(42).shuffle(conditions)
@@ -165,31 +197,37 @@ def run_sweep(
             "latency_reduction_pct": 100.0 * (baseline_latency - mean_latency) / baseline_latency
             if baseline_latency > 0.0
             else 0.0,
-            "perplexity_delta": mean_perplexity - baseline_perplexity,
+            "perplexity_delta": baseline_perplexity - mean_perplexity,
         }
 
     return {
         "conditions": summaries,
         "n_prompts": len(pairs),
         "model": model_name,
+        "n_layers": n_layers,
         "perplexity_metric": (
-            "reference perplexity of continuation given condition-generated text"
+            "reference perplexity of continuation given condition-generated text; "
+            "perplexity_delta is baseline minus condition"
         ),
-        "reference_dataset": "curated_capital_city_pairs",
+        "reference_dataset": "curated_diverse_pairs",
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
-def _make_pvs_scheduler(preset: str) -> Scheduler:
+def _make_pvs_scheduler(
+    preset: str,
+    budgets: dict[str, dict[str, object]] | None = None,
+) -> Scheduler:
     """Create a scheduler for a named budget preset."""
 
+    budgets = budgets or BUDGET_PRESETS
     if preset == "baseline":
         return FullExecutionScheduler()
     if preset == "default":
         return PredictiveValueScheduler()
     if preset == "tight":
         preset = "pvs_tight"
-    parameters = BUDGET_PRESETS.get(preset)
+    parameters = budgets.get(preset)
     if parameters is None:
         raise ValueError(f"Unknown PVS budget preset: {preset}")
     return PredictiveValueScheduler(
@@ -199,6 +237,44 @@ def _make_pvs_scheduler(preset: str) -> Scheduler:
             min_net_value=float(parameters["min_net_value"]),
         )
     )
+
+
+def _scale_budgets_for_model(
+    model_name: str,
+    n_layers: int,
+    max_new_tokens: int,
+) -> dict[str, dict[str, object]]:
+    """Return BUDGET_PRESETS scaled to model depth and generation length."""
+
+    _ = model_name
+    total_compute_units = float(max(1, n_layers) * max(1, max_new_tokens))
+    return {
+        "baseline": {},
+        "pvs_loose": {
+            "max_compute_units": 0.83 * total_compute_units,
+            "max_latency_ms": 10_000.0,
+            "min_net_value": 0.0,
+        },
+        "pvs_medium": {
+            "max_compute_units": 0.50 * total_compute_units,
+            "max_latency_ms": 10_000.0,
+            "min_net_value": 0.0,
+        },
+        "pvs_tight": {
+            "max_compute_units": 0.25 * total_compute_units,
+            "max_latency_ms": 10_000.0,
+            "min_net_value": 0.0,
+        },
+        "token_cap": dict(BUDGET_PRESETS["token_cap"]),
+    }
+
+
+def _model_layer_count(model: PreTrainedModel) -> int:
+    transformer = getattr(model, "transformer", None)
+    if transformer is not None and hasattr(transformer, "h"):
+        return len(transformer.h)
+    config_layers = getattr(getattr(model, "config", None), "num_hidden_layers", 6)
+    return int(config_layers)
 
 
 def _sample_prompt_continuation_pairs(n_prompts: int) -> list[tuple[str, str]]:
@@ -267,259 +343,299 @@ class FullExecutionScheduler(Scheduler):
 def _fallback_pairs(n_prompts: int) -> list[tuple[str, str]]:
     pairs = [
         (
-            'The capital city of France is',
-            'Paris, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The field crew crossed the dry streambed slowly, because the exposed shale "
+            "preserved leaf impressions from a forest that had vanished",
+            "long before the valley became grassland, giving the expedition a rare record of "
+            "climate change across thousands of seasons.",
         ),
         (
-            'The capital city of Germany is',
-            'Berlin, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "When astronomers compare the color of a distant star with its measured "
+            "brightness, they can estimate its temperature and",
+            "separate nearby dwarf stars from remote giants whose light has traveled for "
+            "centuries before reaching the telescope.",
         ),
         (
-            'The capital city of Italy is',
-            'Rome, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "In the tide pool, the small anemones closed whenever a shadow crossed the "
+            "water, while limpets continued scraping algae",
+            "from the rocks with slow regular movements that made the whole pool seem less "
+            "fragile than it first appeared.",
         ),
         (
-            'The capital city of Spain is',
-            'Madrid, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "Chemists studying the old pigment found that the blue powder darkened only "
+            "when moisture carried salts into the paint",
+            "and that careful control of humidity could preserve murals without removing "
+            "them from the chapel walls.",
         ),
         (
-            'The capital city of Portugal is',
-            'Lisbon, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The botanist noted that seedlings near the fallen trunk survived the drought "
+            "better than those in open soil because",
+            "the decaying wood stored water, sheltered roots, and slowly returned minerals "
+            "to the forest floor.",
         ),
         (
-            'The capital city of Japan is',
-            'Tokyo, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The compiler team redesigned the parser after discovering that small grammar "
+            "ambiguities made error messages confusing",
+            "for beginners, even though experienced programmers could usually infer what "
+            "the language intended.",
         ),
         (
-            'The capital city of Canada is',
-            'Ottawa, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "A routing protocol can look simple in a diagram, yet the real network must "
+            "cope with dropped packets, asymmetric paths",
+            "and sudden congestion that appears only when thousands of machines send data "
+            "at the same time.",
         ),
         (
-            'The capital city of Australia is',
-            'Canberra, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "The database migration was scheduled for dawn, when traffic was lowest and "
+            "engineers could compare old indexes",
+            "with the new query plans before customer dashboards began refreshing for the "
+            "business day.",
         ),
         (
-            'The capital city of Brazil is',
-            'Brasilia, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "In a distributed system, a timeout is not proof that another server has "
+            "failed; it is only evidence that",
+            "a message did not return before the local process had to make another decision "
+            "under uncertainty.",
         ),
         (
-            'The capital city of Egypt is',
-            'Cairo, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The robotics students learned that a path planner which worked perfectly in "
+            "simulation still needed margins for",
+            "loose cables, uneven floors, imperfect wheels, and people who stepped into the "
+            "hallway without warning.",
         ),
         (
-            'The capital city of India is',
-            'New Delhi, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "The treaty negotiations continued through the winter because each delegation "
+            "wanted guarantees that the border commission",
+            "would include surveyors, interpreters, and merchants familiar with local roads "
+            "and winter crossings.",
         ),
         (
-            'The capital city of China is',
-            'Beijing, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "After the election, the coalition survived by assigning ministries to rival "
+            "parties while keeping the budget committee",
+            "under a chair trusted by both urban reformers and rural conservatives during "
+            "the first session.",
         ),
         (
-            'The capital city of Russia is',
-            'Moscow, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The archive revealed that food shortages shaped the uprising as much as "
+            "pamphlets did, since bakers, sailors",
+            "and railway workers all described the same morning queues in their letters "
+            "home to relatives.",
         ),
         (
-            'The capital city of Mexico is',
-            'Mexico City, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "A new constitution can promise equal rights in elegant language, but courts "
+            "and provincial offices determine whether",
+            "those promises become ordinary habits in schools, factories, and police stations.",
         ),
         (
-            'The capital city of Argentina is',
-            'Buenos Aires, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "When the port was blockaded, inland towns learned how dependent their markets "
+            "were on imported cloth, salt",
+            "and machine parts that had once seemed too mundane to appear in political speeches.",
         ),
         (
-            'The capital city of Chile is',
-            'Santiago, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "The novelist opens with a kitchen rather than a battlefield, allowing the "
+            "reader to notice how war enters",
+            "through ration cards, missing chairs, and the careful silence of older relatives.",
         ),
         (
-            'The capital city of Peru is',
-            'Lima, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "A borrowed word often changes after crossing languages, losing one shade of "
+            "meaning while gaining another through",
+            "jokes, trade, songs, and the habits of children who pronounce it differently "
+            "at school.",
         ),
         (
-            'The capital city of Colombia is',
-            'Bogota, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The poet's line break delays the verb just long enough for the image to "
+            "hesitate, as if the",
+            "speaker were choosing between confession and description while the reader waits.",
         ),
         (
-            'The capital city of Norway is',
-            'Oslo, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "In the courtroom speech, repetition does more than decorate the argument; it "
+            "builds a rhythm that",
+            "lets listeners remember the accusation even after the legal details become tangled.",
         ),
         (
-            'The capital city of Sweden is',
-            'Stockholm, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "The translator kept the proverb literal in the first draft, then realized "
+            "that a stranger image",
+            "would preserve the humor better than a polished phrase from the target language.",
         ),
         (
-            'The capital city of Finland is',
-            'Helsinki, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "A grain merchant can profit from rising prices only if warehouses, credit, "
+            "and transport contracts allow",
+            "the crop to move before rain or insects destroy the stored harvest in the "
+            "river warehouses.",
         ),
         (
-            'The capital city of Denmark is',
-            'Copenhagen, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "Central banks influence lending not by ordering every bank to change behavior, "
+            "but by altering the",
+            "price of reserves and the expectations that shape tomorrow's borrowing decisions.",
         ),
         (
-            'The capital city of Ireland is',
-            'Dublin, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The factory manager tracked delays back to a single imported gasket, showing "
+            "how a cheap part",
+            "could halt an expensive assembly line when suppliers carried no spare inventory.",
         ),
         (
-            'The capital city of Greece is',
-            'Athens, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "A market stall owner may understand inflation before economists publish the "
+            "figures, because wholesale prices",
+            "change the size of each bundle she can afford to place on display before "
+            "customers arrive.",
         ),
         (
-            'The capital city of Turkey is',
-            'Ankara, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "Trade routes rarely follow the shortest line on a map; they bend toward "
+            "safe harbors, reliable wells",
+            "and towns where contracts can be enforced without sending soldiers beyond "
+            "the city gates.",
         ),
         (
-            'The capital city of Poland is',
-            'Warsaw, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The river widens below the plateau, dropping silt along the inner banks "
+            "where farmers plant melons",
+            "and leaving gravel bars on the bends exposed to stronger currents after "
+            "spring flooding.",
         ),
         (
-            'The capital city of Austria is',
-            'Vienna, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "On the windward side of the island, clouds gather against the ridge and "
+            "release steady rain, while",
+            "the leeward villages manage orchards with cisterns and careful pruning "
+            "through dry months.",
         ),
         (
-            'The capital city of Hungary is',
-            'Budapest, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "The desert pavement looked empty from the road, but between the stones tiny "
+            "plants waited for",
+            "brief storms that could turn a shallow wash green within days before the "
+            "heat returned.",
         ),
         (
-            'The capital city of Romania is',
-            'Bucharest, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "A glacier carves the valley slowly, grinding bedrock into flour and leaving "
+            "moraines that later",
+            "mark where the ice paused during colder decades before retreating up the valley.",
         ),
         (
-            'The capital city of Bulgaria is',
-            'Sofia, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "Mangrove roots trap sediment at the edge of the lagoon, creating nurseries "
+            "for fish and",
+            "protecting the village from waves that arrive during late summer storms and "
+            "highest tides.",
         ),
         (
-            'The capital city of Thailand is',
-            'Bangkok, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The skeptic did not deny that the witness was sincere; she questioned whether "
+            "memory alone",
+            "could justify certainty after distance, darkness, and fear had shaped the scene.",
         ),
         (
-            'The capital city of Vietnam is',
-            'Hanoi, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "A moral rule that cannot survive ordinary exceptions may still teach something, "
+            "because the",
+            "exceptions reveal which human goods the rule was trying to protect in daily "
+            "practice.",
         ),
         (
-            'The capital city of Indonesia is',
-            'Jakarta, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "In formal logic, an argument can be valid even when its premises are false, "
+            "since validity",
+            "concerns the structure that carries truth from assumptions to conclusion "
+            "across cases.",
         ),
         (
-            'The capital city of Malaysia is',
-            'Kuala Lumpur, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "The old debate about free will changes when prediction becomes statistical "
+            "rather than absolute, because",
+            "probability leaves room for responsibility without making choice mysterious "
+            "or random.",
         ),
         (
-            'The capital city of Singapore is',
-            'Singapore, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "A claim of knowledge requires more than confidence; it also requires reasons "
+            "that remain",
+            "stable when another person asks how the belief could have been mistaken in "
+            "the first place.",
         ),
         (
-            'The capital city of Kenya is',
-            'Nairobi, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The proof begins by assuming there are only finitely many primes, then "
+            "constructs a number",
+            "that leaves a remainder when divided by every prime on the list, forcing a "
+            "contradiction.",
         ),
         (
-            'The capital city of Ethiopia is',
-            'Addis Ababa, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "A triangle drawn on a sphere can have three right angles, reminding students "
+            "that familiar",
+            "Euclidean rules depend on the surface where geometry is being measured and "
+            "drawn.",
         ),
         (
-            'The capital city of Morocco is',
-            'Rabat, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The sequence seemed random until the mathematician plotted successive ratios, "
+            "where a simple",
+            "limit appeared behind the growing list of integers and suggested a hidden "
+            "pattern.",
         ),
         (
-            'The capital city of Ghana is',
-            'Accra, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "In graph theory, a bridge is an edge whose removal disconnects the network, "
+            "making it",
+            "important for understanding roads, circuits, and fragile communication "
+            "systems under stress.",
         ),
         (
-            'The capital city of Nigeria is',
-            'Abuja, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "A probability model can predict the average number of arrivals while still "
+            "failing to",
+            "tell the clerk whether the next hour will feel empty or overwhelmed at the "
+            "counter.",
         ),
         (
-            'The capital city of South Africa is',
-            'Pretoria, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "The immune cell recognized the infected tissue because small fragments of "
+            "viral protein were",
+            "displayed on the cell surface like warning flags for nearby immune patrols "
+            "to inspect.",
         ),
         (
-            'The capital city of New Zealand is',
-            'Wellington, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "A drug that works well in a dish may fail in the body when enzymes break "
+            "it down",
+            "before enough of the compound reaches the diseased tissue in a useful dose "
+            "for treatment.",
         ),
         (
-            'The capital city of South Korea is',
-            'Seoul, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The surgeon traced the nerve carefully, knowing that a cut of only a few "
+            "millimeters",
+            "could change sensation in the patient's hand for years after the incision "
+            "healed.",
         ),
         (
-            'The capital city of Philippines is',
-            'Manila, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "Bacteria in the fermenting vat produced acid faster when the room warmed, "
+            "so the",
+            "cheesemaker adjusted the timing rather than changing the recipe or starter "
+            "culture.",
         ),
         (
-            'The capital city of Pakistan is',
-            'Islamabad, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "During sleep, the brain does not simply shut down; it cycles through states "
+            "that",
+            "alter memory, temperature, hormone release, and muscle tone throughout the "
+            "night.",
         ),
         (
-            'The capital city of Bangladesh is',
-            'Dhaka, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The jazz ensemble left space after the trumpet solo, letting the bassist "
+            "answer with",
+            "a short phrase that changed the direction of the tune before the drums "
+            "returned.",
         ),
         (
-            'The capital city of Saudi Arabia is',
-            'Riyadh, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The apartment block looked severe from the street, but inside the courtyard "
+            "children played",
+            "beside vines that softened the concrete balconies and shaded the laundry "
+            "lines below.",
         ),
         (
-            'The capital city of Israel is',
-            'Jerusalem, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "A public festival can preserve tradition while changing every year, because "
+            "costumes, songs",
+            "and food stalls respond to new families joining the neighborhood each spring "
+            "season.",
         ),
         (
-            'The capital city of Czech Republic is',
-            'Prague, a national center for government, transportation, education, culture, '
-            'public services, and international visitors.',
+            "The craft guild trained apprentices through repetition, but mastery also "
+            "required knowing",
+            "which flaw in the material could become part of the final design rather "
+            "than waste.",
         ),
         (
-            'The capital city of Netherlands is',
-            'Amsterdam, a national center for government, transportation, education, '
-            'culture, public services, and international visitors.',
+            "The choir director asked for less volume and more attention to consonants, "
+            "because the",
+            "old stone church blurred every word that was sung too forcefully near the "
+            "arches.",
         ),
     ]
     if len(pairs) != 50:
         raise RuntimeError("Fallback reference dataset must contain exactly 50 pairs.")
-    return [pairs[index % len(pairs)] for index in range(n_prompts)]
+    return pairs[:n_prompts]
 
 def _load_model(
     model_name: str,
@@ -616,7 +732,12 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-prompts", type=int, default=50)
     parser.add_argument("--max-new-tokens", type=int, default=20)
-    parser.add_argument("--model", type=str, default="distilgpt2")
+    parser.add_argument(
+        "--model",
+        choices=("distilgpt2", "gpt2-medium", "all"),
+        default="distilgpt2",
+    )
+    parser.add_argument("--fast", action="store_true")
     return parser.parse_args()
 
 

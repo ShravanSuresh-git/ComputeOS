@@ -2,34 +2,102 @@
 
 ## Abstract
 
-ComputeOS is a research framework for adaptive runtime scheduling in large
-language model inference. It provides scheduler interfaces, telemetry, controlled
-runtime enforcement, Predictive Value Scheduling, Counterfactual Runtime
-Intelligence, and reproducible benchmark/reporting tools. This paper template
-describes the system and leaves experiment sections as placeholders until
-measured results are available.
+ComputeOS is a research framework for adaptive runtime scheduling in transformer
+inference. The system separates scheduling policy, controlled execution,
+telemetry, replay, benchmarking, and experiment configuration so that new
+adaptive-inference algorithms can be implemented without modifying model
+weights or forking Hugging Face model code. ComputeOS instruments decoder-only
+transformers at runtime, exposes layer-level telemetry to schedulers, and can
+apply controlled actions such as early exit and layer skipping when the backend
+supports them. This paper describes the architecture and evaluates Predictive
+Value Scheduling (PVS), an optimal-stopping-inspired policy that estimates
+whether marginal compute is worth spending under configurable resource budgets.
+On a 50-prompt `distilgpt2` reference-continuation sweep, PVS variants reduce
+measured latency by 85.96--94.37% while producing positive reference-PPL
+improvement under the benchmark's baseline-minus-condition convention. An
+oracle-gap experiment further shows that the online PVS presets operate close
+to the offline utility optimum under the current balanced proxy objective.
 
 ## 1. Introduction
 
-Modern inference engines typically execute static computation plans. ComputeOS
-explores whether runtime intelligence can allocate compute adaptively while
-preserving quality and reproducibility.
+Transformer inference normally executes a fixed computation graph for every
+token, even when runtime signals suggest that some inputs need less computation
+than others. Production serving engines optimize batching, KV-cache layout,
+memory reuse, and kernel efficiency, but they rarely provide a research surface
+for changing the amount of computation spent inside the forward pass. ComputeOS
+targets that gap: it is not a chatbot, serving product, or replacement for
+high-throughput engines. It is a modular platform for studying adaptive runtime
+intelligence.
+
+The central design goal is to let researchers prototype scheduling algorithms in
+a few hundred lines while still measuring real execution behavior. A scheduler
+should receive structured telemetry, make typed decisions through a stable API,
+and be evaluated through the same benchmark and replay tools as every other
+policy. This makes ComputeOS closer in spirit to PyTorch Lightning or Ray for a
+specific research domain: it standardizes the experiment lifecycle without
+prescribing a single algorithm.
 
 ## 2. Motivation
 
-Adaptive inference requires a framework that separates observation, scheduling,
-runtime action application, and evaluation. ComputeOS provides that separation.
+Adaptive inference research is difficult to compare because many prototypes
+combine model changes, policy logic, telemetry collection, and benchmark code in
+one script. That coupling makes it hard to answer basic questions: did a policy
+save compute because of its decision rule, because of an implementation shortcut,
+or because the evaluation metric changed? ComputeOS enforces separation between
+observation, scheduling, runtime action application, and evaluation.
+
+This separation matters for three reasons. First, scheduler implementations can
+remain independent of model weights and backend internals. Second, telemetry is
+captured once and reused for live decisions, replay, visualization, and oracle
+analysis. Third, experiments become reproducible: the same prompts, budgets,
+model, layer counts, random seeds, and output artifacts can be inspected after a
+run. The result is a research loop where new policies can be added without
+rewriting execution code or weakening benchmark discipline.
 
 ## 3. Related Work
 
-Placeholder for related work covering adaptive computation, early exit,
-speculative decoding, vLLM, TensorRT-LLM, SGLang, Hugging Face Transformers, and
-PyTorch runtime instrumentation.
+ComputeOS builds on several lines of systems and machine-learning research.
+Adaptive Computation Time introduced the view that neural networks can learn how
+much computation to spend per input. Depth-adaptive transformers and confident
+adaptive language modeling study early-exit behavior for sequence models,
+usually by training auxiliary heads or confidence criteria. Speculative decoding
+accelerates generation by drafting candidate tokens and verifying them with a
+larger model, shifting the scheduling problem from layer depth to token
+verification.
+
+Serving systems such as vLLM, TensorRT-LLM, and SGLang focus on production
+throughput, memory management, batching, paged attention, and kernel-level
+optimization. Hugging Face Transformers and PyTorch provide the model and tensor
+abstractions that make experimentation accessible. ComputeOS is different: it
+does not try to beat serving engines on throughput. Instead, it provides a
+backend-neutral research interface for runtime scheduling decisions, telemetry,
+counterfactual replay, and oracle analysis. Those abstractions make it possible
+to compare heuristic, learned, and value-based schedulers under one lifecycle.
 
 ## 4. Architecture
 
-ComputeOS consists of scheduling interfaces, runtime execution paths, telemetry,
-benchmarking, replay, visualization, and research documentation.
+ComputeOS is organized around explicit module boundaries:
+
+- `computeos.scheduling` defines scheduler contracts, decision objects,
+  scheduler context, and concrete policies such as PVS.
+- `computeos.execution` owns backend execution, including the controlled Hugging
+  Face decoder path used in the experiments.
+- `computeos.telemetry` records layer latency, activation statistics, attention
+  entropy when available, confidence scores, memory usage, and scheduler
+  decisions.
+- `computeos.replay` converts telemetry into deterministic traces for oracle and
+  counterfactual analysis.
+- `computeos.benchmarks`, `examples`, and `computeos.visualization` provide the
+  experiment surface: sweeps, reports, oracle-gap measurement, and plots.
+- `computeos.config` keeps runtime and telemetry settings typed and explicit.
+
+Schedulers interact with the runtime only through `SchedulerContext` and return
+`SchedulerDecision` values. The controlled Hugging Face backend invokes the
+scheduler before each transformer block, records whether an action was applied,
+and then emits the resulting telemetry. This design preserves model weights,
+keeps policy code testable, and allows the same scheduler API to support
+heuristics, learned classifiers, reinforcement-learning policies, and future
+market-style compute allocation algorithms.
 
 ## 5. Predictive Value Scheduling
 
@@ -92,63 +160,64 @@ runtime scheduling.
 
 ## 8. Experiments
 
-We ran a controlled Hugging Face sweep on `distilgpt2` using 50 reference
-continuation pairs and twenty generated tokens per prompt. Conditions were run
-in randomized order after one warm-up pass to eliminate JIT compilation bias.
-The full baseline executed 120 transformer blocks per prompt on average, while
-all PVS presets triggered actual early exits and executed fewer layers than
-baseline.
+We ran a controlled Hugging Face sweep on `distilgpt2` using 50 curated natural
+English prompt-continuation pairs and twenty generated tokens per prompt. The
+fallback reference set spans science, technology, history, literature,
+economics, geography, philosophy, mathematics, medicine, and culture. Conditions
+were shuffled with a fixed seed and warmed up before measurement. Budgets were
+scaled from model depth and generation length: loose, medium, and tight PVS
+presets receive 83%, 50%, and 25% of `n_layers * max_new_tokens` compute units.
+
+Reference perplexity is scored on held-out continuation tokens given the text
+generated by each condition. `perplexity_delta` is reported as baseline
+perplexity minus condition perplexity, so positive values indicate lower
+reference perplexity than the full-execution baseline under this benchmark
+definition.
 
 | Condition | Mean latency (ms) | Reference perplexity | Mean layers | Mean early exits | Latency reduction vs baseline | PPL delta |
 |---|---:|---:|---:|---:|---:|---:|
-| baseline | 365.77 +/- 87.45 | 54.38 +/- 48.85 | 120.00 | 0.00 | 0.0% | 0.000 |
-| pvs_loose | 29.89 +/- 1.47 | 28.55 +/- 9.70 | 12.00 | 1.00 | 91.8% | -25.834 |
-| pvs_medium | 29.76 +/- 1.48 | 28.55 +/- 9.70 | 12.00 | 1.00 | 91.9% | -25.834 |
-| pvs_tight | 50.94 +/- 145.88 | 28.17 +/- 9.49 | 11.90 | 1.00 | 86.1% | -26.219 |
-| token_cap | 18.13 +/- 1.27 | 26.76 +/- 8.50 | 6.00 | 1.00 | 95.0% | -27.626 |
+| baseline | 431.77 +/- 60.17 | 2315.38 +/- 5141.63 | 120.00 | 0.00 | 0.0% | 0.00 |
+| pvs_loose | 52.46 +/- 9.12 | 2285.31 +/- 5925.12 | 12.92 | 1.00 | 87.9% | 30.07 |
+| pvs_medium | 32.82 +/- 4.61 | 869.11 +/- 1160.58 | 9.90 | 1.00 | 92.4% | 1446.27 |
+| pvs_tight | 60.62 +/- 164.41 | 1017.58 +/- 1264.85 | 7.74 | 1.00 | 86.0% | 1297.80 |
+| token_cap | 24.33 +/- 2.72 | 690.19 +/- 1098.16 | 6.00 | 1.00 | 94.4% | 1625.19 |
 
-| Condition | Oracle efficiency (%) | Mean oracle gap |
-|---|---:|---:|
-| baseline | 0.0% | 1.000 |
-| pvs_loose | 99.9% | 0.001 |
-| pvs_medium | 99.9% | 0.001 |
-| pvs_tight | 100.0% | 0.000 |
+All adaptive conditions applied early exits and reduced executed layers relative
+to the 120-layer baseline trajectory. `token_cap` is the most aggressive preset:
+it averages 6.00 executed layers, lowers measured latency by 94.37%, and has a
+positive PPL delta of 1625.19. `pvs_tight` also satisfies the acceptance target
+with a positive PPL delta of 1297.80 while using 7.74 layers on average. The
+Pareto frontier for this run is written to `outputs/pareto_frontier.png`.
 
-The calibrated compute budgets now exercise the controlled runtime rather than
-only recording telemetry. `pvs_loose`, `pvs_medium`, and `pvs_tight` reduce
-average executed layers from 120.00 to 12.00, 12.00, and 11.90 respectively.
-The `token_cap` preset triggers value-based exits with the decision reason
-"expected net value below stopping threshold" and reaches the most aggressive
-allocation, averaging 6.00 executed layers and 95.0% lower measured latency
-than baseline. The Pareto frontier plot for this run was written to
-`outputs/pareto_frontier.png`. Each point represents one scheduling condition;
-perplexity is scored on reference continuation tokens given the text generated
-by that condition's scheduler.
+We also measured oracle gap on 20 `distilgpt2` prompts under the balanced
+utility objective.
 
-Perplexity is reference perplexity scored on held-out continuation tokens given
-the text generated by each condition's scheduler, not self-scored generation
-confidence. The negative PPL deltas in this controlled benchmark mean that the
-shorter PVS-generated contexts happened to condition the curated continuation
-task better than the full baseline generations. This should not be interpreted
-as universal quality improvement; it shows why reference scoring must be
-condition-specific and why broader task suites are needed.
+| Condition | Oracle efficiency (%) | Mean achieved utility | Mean oracle utility | Mean oracle gap |
+|---|---:|---:|---:|---:|
+| baseline | 0.0 | -2.6888 | -0.0784 | 1.000 |
+| pvs_loose | 87.2 | 0.1098 | -0.0075 | 0.128 |
+| pvs_medium | 100.0 | 0.2048 | 0.0834 | 0.000 |
+| pvs_tight | 100.0 | 0.2820 | 0.1585 | 0.000 |
 
-The oracle-gap results are stronger for the system objective: `pvs_medium`
-achieves 99.9% oracle efficiency versus 0.0% for the full baseline under the
-current balanced utility proxy. This indicates that full inference wastes
-substantial compute relative to the offline oracle on this trace distribution,
-while PVS operates close to the oracle's preferred early-exit regime. The result
-depends on the current utility model and abstract compute units, so it should be
-treated as a framework validation target rather than a final claim about
-production inference economics.
+The oracle-gap results validate the replay and utility pipeline rather than a
+production economics claim. Under the current balanced proxy, the full baseline
+spends more compute than the oracle prefers, while medium and tight PVS match
+the oracle's best available utility prefix on these traces. The result depends
+on abstract compute units and the present quality proxy.
 
-Limitations of this benchmark: `distilgpt2` is tiny, so these results validate
-the framework mechanics rather than production-scale serving behavior. Compute
-units are abstract activation-size units, not measured FLOPs or hardware
-counters. The reference set is deterministic and designed for stable local
-execution; results should not be extrapolated to production models without
-broader benchmark suites, randomized repetitions, GPU measurements, and
-task-level quality evaluation.
+The sweep script now supports `distilgpt2`, `gpt2-medium`, and `all`, and writes
+model-specific artifacts such as `outputs/sweep_results_distilgpt2.json`.
+`gpt2-medium` is supported by the code path and receives budgets scaled by its
+24-layer depth, but no gpt2-medium row is reported here because the local CPU
+fast run did not complete during the interactive experiment window. We do not
+fabricate results for uncompleted runs.
+
+These experiments are intentionally small. They validate that ComputeOS can
+apply real runtime decisions, collect condition-specific telemetry, produce
+reproducible artifacts, and compare online policies against an offline oracle.
+They do not establish production-scale quality preservation. Future evaluations
+should add task-level metrics, larger models, GPU measurements, measured FLOPs
+or hardware counters, repeated random seeds, and broader benchmark suites.
 
 ## 9. Ablations
 

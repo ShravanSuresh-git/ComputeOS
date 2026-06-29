@@ -16,7 +16,9 @@ from sweep_latency_quality import (
     CANONICAL_CONDITION_ORDER,
     _load_model,
     _make_pvs_scheduler,
+    _model_layer_count,
     _sample_prompt_continuation_pairs,
+    _scale_budgets_for_model,
 )
 
 from computeos.config.schema import ExecutionConfig, TelemetryConfig
@@ -39,8 +41,22 @@ def main() -> None:
     """Run oracle-gap measurement and write ``outputs/oracle_gap.json``."""
 
     args = _parse_args()
+    if args.fast:
+        args.n_prompts = 10
+        args.max_new_tokens = 10
+    if args.model == "gpt2-medium" and not args.fast:
+        Console().print(
+            "Warning: gpt2-medium on CPU may take 20+ minutes. "
+            "Pass --fast for a quick smoke run."
+        )
     pairs = _sample_prompt_continuation_pairs(args.n_prompts)
     model, tokenizer, model_name = _load_model(args.model)
+    n_layers = _model_layer_count(model)
+    scaled_budgets = _scale_budgets_for_model(
+        model_name=model_name,
+        n_layers=n_layers,
+        max_new_tokens=args.max_new_tokens,
+    )
     telemetry_config = TelemetryConfig(capture_memory=True)
     trace_loader = TraceLoader()
     oracle = OracleScheduler()
@@ -57,7 +73,7 @@ def main() -> None:
             model=model,
             tokenizer=tokenizer,
             model_name=model_name,
-            scheduler=_make_pvs_scheduler(condition),
+            scheduler=_make_pvs_scheduler(condition, scaled_budgets),
             execution_config=ExecutionConfig(max_new_tokens=args.max_new_tokens, use_cache=False),
             telemetry_config=telemetry_config,
         )
@@ -97,6 +113,7 @@ def main() -> None:
         },
         "n_prompts": len(pairs),
         "model": model_name,
+        "n_layers": n_layers,
         "objective": str(OracleObjective.BALANCED),
         "timestamp": datetime.now(UTC).isoformat(),
     }
@@ -138,7 +155,12 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-prompts", type=int, default=20)
     parser.add_argument("--max-new-tokens", type=int, default=20)
-    parser.add_argument("--model", type=str, default="distilgpt2")
+    parser.add_argument(
+        "--model",
+        choices=("distilgpt2", "gpt2-medium"),
+        default="distilgpt2",
+    )
+    parser.add_argument("--fast", action="store_true")
     return parser.parse_args()
 
 
