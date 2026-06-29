@@ -250,6 +250,7 @@ class HFControlledEngine:
                 "sequences": _sequence_tensor(prompt_input_ids, generated_ids),
                 "scores": [score.detach().cpu() for score in all_scores],
             },
+            output_ids=list(generated_ids),
         )
 
     def warm_up(self, prompt: str | None = None) -> None:

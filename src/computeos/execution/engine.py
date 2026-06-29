@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid as _uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any
 
@@ -28,6 +28,7 @@ class ExecutionResult:
     generated_text: str
     telemetry: ModelTelemetry
     raw_outputs: dict[str, Any]
+    output_ids: list[int] = field(default_factory=list)
 
 
 class InferenceEngine:
@@ -180,6 +181,7 @@ class InferenceEngine:
             generated_text=generated_text,
             telemetry=telemetry,
             raw_outputs={"sequences": _sequence_tensor(prompt_input_ids, generated_ids)},
+            output_ids=list(generated_ids),
         )
 
     def warm_up(self, prompt: str | None = None) -> None:

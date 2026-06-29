@@ -20,6 +20,7 @@ from computeos.execution.hf_controlled import HFControlledEngine
 from computeos.scheduling.base import Scheduler
 from computeos.scheduling.context import SchedulerContext
 from computeos.scheduling.decision import SchedulerDecision
+from computeos.scheduling.pvs import PredictiveValueScheduler, PVSResourceBudgets
 from computeos.scheduling.random_scheduler import RandomScheduler
 from computeos.telemetry.metrics import ModelTelemetry
 
@@ -204,6 +205,37 @@ class BenchmarkTests(unittest.TestCase):
 
         self.assertIsNotNone(self_scored)
         self.assertGreater(abs(float(self_scored or 0.0) - reference), 0.5)
+
+    def test_per_condition_perplexity_differs_by_generation(self) -> None:
+        prompt = "hello "
+        continuation = "world"
+        baseline_engine = self._tiny_hf_engine()
+        tight_engine = HFControlledEngine(
+            model=baseline_engine._model,  # type: ignore[attr-defined]
+            tokenizer=TinyTokenizer(),  # type: ignore[arg-type]
+            model_name="random-gpt2",
+            scheduler=PredictiveValueScheduler(
+                budgets=PVSResourceBudgets(max_compute_units=2.0)
+            ),
+            execution_config=ExecutionConfig(max_new_tokens=2, seed=11, use_cache=False),
+            telemetry_config=TelemetryConfig(capture_memory=False),
+        )
+
+        baseline_execution = baseline_engine.generate(prompt)
+        tight_execution = tight_engine.generate(prompt)
+        baseline_text = prompt + baseline_execution.generated_text
+        tight_text = prompt + tight_execution.generated_text
+        baseline_logs = baseline_engine.score_continuation(baseline_text, continuation)
+        tight_logs = tight_engine.score_continuation(tight_text, continuation)
+        baseline_ppl = math.exp(-sum(baseline_logs) / len(baseline_logs))
+        tight_ppl = math.exp(-sum(tight_logs) / len(tight_logs))
+
+        self.assertIsInstance(baseline_ppl, float)
+        self.assertIsInstance(tight_ppl, float)
+        self.assertTrue(math.isfinite(baseline_ppl))
+        self.assertTrue(math.isfinite(tight_ppl))
+        self.assertGreater(baseline_ppl, 0.0)
+        self.assertGreater(tight_ppl, 0.0)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -21,7 +22,6 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
-from computeos.benchmarks.perplexity import ReferencePerplexityBenchmark
 from computeos.config.schema import ExecutionConfig, TelemetryConfig
 from computeos.execution.hf_controlled import HFControlledEngine
 from computeos.scheduling.base import Scheduler
@@ -95,8 +95,7 @@ def run_sweep(
 ) -> dict[str, object]:
     """Evaluate baseline and PVS budget variants on a shared prompt set."""
 
-    benchmark = ReferencePerplexityBenchmark(pairs=pairs, max_continuation_tokens=5)
-    reference_scores: dict[int, float] = {}
+    max_continuation_tokens = 5
     telemetry_config = TelemetryConfig(capture_memory=True)
     conditions: list[tuple[str, Callable[[], Scheduler]]] = [
         (name, lambda preset=name: _make_pvs_scheduler(preset))
@@ -121,9 +120,16 @@ def run_sweep(
             started_at = perf_counter()
             execution = engine.generate(prompt)
             wall_latency_ms = (perf_counter() - started_at) * 1000.0
-            if prompt_index not in reference_scores:
-                reference_scores[prompt_index] = benchmark.score_pair(engine, prompt, continuation)
-            score = reference_scores[prompt_index]
+            generated_text = tokenizer.decode(execution.output_ids, skip_special_tokens=True)
+            if isinstance(generated_text, list):
+                generated_text = "".join(generated_text)
+            generated_with_prompt = prompt + str(generated_text)
+            log_probs = engine.score_continuation(
+                generated_with_prompt,
+                continuation,
+                max_tokens=max_continuation_tokens,
+            )
+            score = math.exp(-sum(log_probs) / len(log_probs)) if log_probs else float("inf")
             per_condition[condition].append(
                 {
                     "prompt_index": float(prompt_index),
@@ -166,7 +172,9 @@ def run_sweep(
         "conditions": summaries,
         "n_prompts": len(pairs),
         "model": model_name,
-        "perplexity_metric": "reference perplexity (not self-scored)",
+        "perplexity_metric": (
+            "reference perplexity of continuation given condition-generated text"
+        ),
         "reference_dataset": "curated_capital_city_pairs",
         "timestamp": datetime.now(UTC).isoformat(),
     }
@@ -581,7 +589,7 @@ def _print_table(results: dict[str, object]) -> None:
     table = Table(title="ComputeOS PVS Latency/Quality Sweep")
     table.add_column("Condition", no_wrap=True)
     table.add_column("Latency ms", no_wrap=True)
-    table.add_column("Reference PPL", no_wrap=True)
+    table.add_column("Ref PPL (given generated text)", no_wrap=True)
     table.add_column("Layers", no_wrap=True)
     table.add_column("Early exits", no_wrap=True)
     table.add_column("Exit layer", no_wrap=True)
