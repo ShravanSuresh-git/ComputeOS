@@ -8,6 +8,8 @@ goal is to make it easy to instrument transformer execution, collect detailed
 telemetry, and experiment with scheduling policies that allocate inference compute
 dynamically.
 
+![ComputeOS demo](docs/assets/computeos-demo.gif)
+
 ## Design Principles
 
 - **Non-invasive instrumentation:** model weights and module definitions are not
