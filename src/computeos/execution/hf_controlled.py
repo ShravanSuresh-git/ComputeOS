@@ -259,6 +259,57 @@ class HFControlledEngine:
         for _ in range(self._execution_config.warmup_runs):
             self.generate(warmup_prompt)
 
+    @torch.inference_mode()
+    def score_continuation(
+        self,
+        prompt: str,
+        continuation: str,
+        *,
+        max_tokens: int = 50,
+    ) -> list[float]:
+        """Return reference log-probabilities for continuation tokens.
+
+        Each value is log P(token_t | prompt + continuation[:t]) under full
+        model execution. The model is teacher-forced on the reference
+        continuation and never scores its own greedy outputs.
+        """
+
+        cast(nn.Module, self._model).eval()
+        device = _model_device(self._model)
+        separator = (
+            " "
+            if prompt
+            and continuation
+            and not prompt[-1].isspace()
+            and not continuation[0].isspace()
+            else ""
+        )
+        scoring_prompt = prompt + separator
+        prompt_inputs = self._tokenizer(scoring_prompt, return_tensors="pt")
+        combined_inputs = self._tokenizer(scoring_prompt + continuation, return_tensors="pt")
+        input_ids = combined_inputs["input_ids"].to(device)
+        n_prompt_tokens = int(prompt_inputs["input_ids"].shape[-1])
+        if input_ids.shape[-1] <= n_prompt_tokens:
+            return []
+
+        outputs = self._model(
+            input_ids=input_ids,
+            use_cache=False,
+            return_dict=True,
+        )
+        logits = cast(torch.Tensor, outputs.logits)
+        log_probs = torch.log_softmax(logits.float(), dim=-1)
+
+        continuation_end = min(
+            input_ids.shape[-1],
+            n_prompt_tokens + max(0, max_tokens),
+        )
+        scored: list[float] = []
+        for position in range(n_prompt_tokens, continuation_end):
+            token_id = int(input_ids[0, position].item())
+            scored.append(float(log_probs[0, position - 1, token_id].item()))
+        return scored
+
 
 class _MaybeAutocast:
     def __init__(self, enabled: bool) -> None:

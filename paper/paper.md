@@ -61,12 +61,14 @@ budget changes and reports predicted latency, compute, memory, quality proxy,
 regret, and oracle gap.
 
 Validation compared CRI's static full-execution counterfactual against actual
-controlled full-execution reruns for three `distilgpt2` WikiText prompts. The
-measured latency MAE was 309.50 ms and the perplexity MAE was 7.683, failing the
-predefined pass thresholds of 20 ms and 2.0 respectively. This failure is a
-useful negative result: the current CRI proxy can replay observed telemetry, but
-it is not yet calibrated enough to predict unobserved full-execution quality and
-latency from early-stopped traces.
+controlled full-execution reruns for 20 `distilgpt2` reference-continuation
+pairs. After the proportional latency estimator was added in v3, the latency
+MAE decreased to 121.62 ms. The updated run still fails the predefined 20 ms
+latency threshold, and the reference-perplexity MAE was 26.160, failing the 2.0
+perplexity threshold. This failure is a useful negative result: the current CRI
+proxy can replay observed telemetry and improves over the earlier 309.50 ms
+latency MAE, but it is not yet calibrated enough to predict unobserved
+full-execution quality and latency from early-stopped traces.
 
 ## 7. Oracle Scheduler
 
@@ -88,36 +90,42 @@ runtime scheduling.
 
 ## 8. Experiments
 
-We ran a controlled Hugging Face sweep on `distilgpt2` using ten WikiText-103
-validation prompts and twenty generated tokens per prompt. Conditions were run
+We ran a controlled Hugging Face sweep on `distilgpt2` using 50 reference
+continuation pairs and twenty generated tokens per prompt. Conditions were run
 in randomized order after one warm-up pass to eliminate JIT compilation bias.
 The full baseline executed 120 transformer blocks per prompt on average, while
-all PVS presets now triggered actual early exits and executed fewer layers than
+all PVS presets triggered actual early exits and executed fewer layers than
 baseline.
 
-| Condition | Mean latency (ms) | Mean perplexity | Mean layers | Mean early exits | Latency reduction vs baseline | Perplexity delta |
+| Condition | Mean latency (ms) | Reference perplexity | Mean layers | Mean early exits | Latency reduction vs baseline | PPL delta |
 |---|---:|---:|---:|---:|---:|---:|
-| baseline | 417.91 | 1.377 | 120.00 | 0.00 | 0.0% | 0.000 |
-| pvs_loose | 71.39 | 4.971 | 20.00 | 1.00 | 82.9% | 3.594 |
-| pvs_medium | 66.15 | 5.032 | 16.20 | 1.00 | 84.2% | 3.654 |
-| pvs_tight | 173.46 | 5.498 | 12.00 | 1.00 | 58.5% | 4.121 |
-| token_cap | 26.47 | 2.880 | 6.00 | 1.00 | 93.7% | 1.503 |
+| baseline | 1320.85 +/- 654.32 | 26.57 +/- 8.25 | 120.00 | 0.00 | 0.0% | 0.000 |
+| pvs_loose | 115.08 +/- 43.73 | 26.57 +/- 8.25 | 12.00 | 1.00 | 91.3% | 0.000 |
+| pvs_medium | 132.49 +/- 45.67 | 26.57 +/- 8.25 | 12.00 | 1.00 | 90.0% | 0.000 |
+| pvs_tight | 142.36 +/- 201.10 | 26.57 +/- 8.25 | 11.90 | 1.00 | 89.2% | 0.000 |
+| token_cap | 68.22 +/- 43.01 | 26.57 +/- 8.25 | 6.00 | 1.00 | 94.8% | 0.000 |
 
 The calibrated compute budgets now exercise the controlled runtime rather than
-only recording telemetry. `pvs_loose`, `pvs_medium`, and `pvs_tight` stop from
-compute-budget exhaustion, reducing average executed layers from 120.00 to
-20.00, 16.20, and 12.00 respectively. The `token_cap` preset triggers
-value-based exits with the decision reason "expected net value below stopping
-threshold" and reaches the most aggressive allocation, averaging 6.00 executed
-layers and 93.7% lower measured latency than baseline.
+only recording telemetry. `pvs_loose`, `pvs_medium`, and `pvs_tight` reduce
+average executed layers from 120.00 to 12.00, 12.00, and 11.90 respectively.
+The `token_cap` preset triggers value-based exits with the decision reason
+"expected net value below stopping threshold" and reaches the most aggressive
+allocation, averaging 6.00 executed layers and 94.8% lower measured latency
+than baseline. The Pareto frontier plot for this run was written to
+`outputs/pareto_frontier.png`.
+
+Perplexity is reference perplexity scored on held-out continuation tokens, not
+self-scored generation confidence. In this experiment, reference perplexity is
+reported as a model-side quality anchor and is intentionally scored with full
+teacher-forced inference, so it is invariant across scheduling conditions.
 
 Limitations of this benchmark: `distilgpt2` is tiny, so these results validate
 the framework mechanics rather than production-scale serving behavior. Compute
 units are abstract activation-size units, not measured FLOPs or hardware
-counters. The perplexity deltas show a real quality/compute trade-off, and the
-latency numbers should not be extrapolated to larger production models without
-broader benchmarks, randomized repetitions, GPU measurements, and task-level
-quality evaluation.
+counters. The reference set is deterministic and designed for stable local
+execution; results should not be extrapolated to production models without
+broader benchmark suites, randomized repetitions, GPU measurements, and
+task-level quality evaluation.
 
 ## 9. Ablations
 

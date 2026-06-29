@@ -21,14 +21,14 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
-from computeos.benchmarks.base import BenchmarkItem
-from computeos.benchmarks.perplexity import PerplexityBenchmark
+from computeos.benchmarks.perplexity import ReferencePerplexityBenchmark
 from computeos.config.schema import ExecutionConfig, TelemetryConfig
 from computeos.execution.hf_controlled import HFControlledEngine
 from computeos.scheduling.base import Scheduler
 from computeos.scheduling.context import SchedulerContext
 from computeos.scheduling.decision import SchedulerAction, SchedulerDecision
 from computeos.scheduling.pvs import PredictiveValueScheduler, PVSResourceBudgets
+from computeos.visualization import plot_pareto_frontier
 
 CANONICAL_CONDITION_ORDER = (
     "baseline",
@@ -67,29 +67,36 @@ def main() -> None:
     """Run the sweep and write ``outputs/sweep_results.json``."""
 
     args = _parse_args()
-    prompts = _sample_prompts(args.n_prompts)
+    pairs = _sample_prompt_continuation_pairs(args.n_prompts)
     model, tokenizer, model_name = _load_model(args.model)
     results = run_sweep(
         model=model,
         tokenizer=tokenizer,
         model_name=model_name,
-        prompts=prompts,
+        pairs=pairs,
         max_new_tokens=args.max_new_tokens,
     )
     _write_json(_outputs_dir() / "sweep_results.json", results)
     _print_table(results)
+    try:
+        path = plot_pareto_frontier(results, _outputs_dir() / "pareto_frontier.png")
+    except ImportError as exc:
+        Console().print(f"Pareto plot skipped: {exc}")
+    else:
+        Console().print(f"Pareto plot saved to {path}")
 
 
 def run_sweep(
     model: PreTrainedModel,
     tokenizer: PreTrainedTokenizerBase,
     model_name: str,
-    prompts: list[str],
+    pairs: list[tuple[str, str]],
     max_new_tokens: int,
 ) -> dict[str, object]:
     """Evaluate baseline and PVS budget variants on a shared prompt set."""
 
-    benchmark = PerplexityBenchmark(prompts=prompts)
+    benchmark = ReferencePerplexityBenchmark(pairs=pairs, max_continuation_tokens=5)
+    reference_scores: dict[int, float] = {}
     telemetry_config = TelemetryConfig(capture_memory=True)
     conditions: list[tuple[str, Callable[[], Scheduler]]] = [
         (name, lambda preset=name: _make_pvs_scheduler(preset))
@@ -109,12 +116,14 @@ def run_sweep(
             execution_config=ExecutionConfig(max_new_tokens=max_new_tokens, use_cache=False),
             telemetry_config=telemetry_config,
         )
-        engine.warm_up(prompt=prompts[0])
-        for prompt_index, prompt in enumerate(prompts):
+        engine.warm_up(prompt=pairs[0][0])
+        for prompt_index, (prompt, continuation) in enumerate(pairs):
             started_at = perf_counter()
             execution = engine.generate(prompt)
             wall_latency_ms = (perf_counter() - started_at) * 1000.0
-            score = benchmark.score(BenchmarkItem(prompt=prompt), execution)
+            if prompt_index not in reference_scores:
+                reference_scores[prompt_index] = benchmark.score_pair(engine, prompt, continuation)
+            score = reference_scores[prompt_index]
             per_condition[condition].append(
                 {
                     "prompt_index": float(prompt_index),
@@ -155,8 +164,10 @@ def run_sweep(
 
     return {
         "conditions": summaries,
-        "n_prompts": len(prompts),
+        "n_prompts": len(pairs),
         "model": model_name,
+        "perplexity_metric": "reference perplexity (not self-scored)",
+        "reference_dataset": "curated_capital_city_pairs",
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
@@ -182,27 +193,51 @@ def _make_pvs_scheduler(preset: str) -> Scheduler:
     )
 
 
+def _sample_prompt_continuation_pairs(n_prompts: int) -> list[tuple[str, str]]:
+    """Sample prompt/reference-continuation pairs for reference perplexity."""
+
+    return _fallback_pairs(n_prompts)
+
+
 def _sample_prompts(n_prompts: int) -> list[str]:
-    try:
-        from datasets import load_dataset
-    except ImportError:
-        return _fallback_prompts(n_prompts)
+    """Compatibility helper for examples that only need prompts."""
 
-    try:
-        dataset = load_dataset("wikitext", "wikitext-103-raw-v1", split="validation")
-    except Exception:
-        return _fallback_prompts(n_prompts)
+    return [prompt for prompt, _continuation in _sample_prompt_continuation_pairs(n_prompts)]
 
-    prompts: list[str] = []
-    for row in dataset:
-        text = str(row.get("text", ""))
-        if "\n = " in text or text.startswith(" = "):
-            trimmed = " ".join(text.split())[:200]
-            if trimmed:
-                prompts.append(trimmed)
-        if len(prompts) >= n_prompts:
-            break
-    return prompts or _fallback_prompts(n_prompts)
+
+def _append_article_pair(article_lines: list[str], pairs: list[tuple[str, str]]) -> None:
+    article = " ".join(" ".join(line.split()) for line in article_lines)
+    if len(article) < 320:
+        return
+    prompt, continuation = _split_reference_text(article)
+    if prompt and continuation and _is_reference_pair_candidate(prompt, continuation):
+        pairs.append((prompt, continuation))
+
+
+def _split_reference_text(text: str) -> tuple[str, str]:
+    prompt_end = text.rfind(" ", 100, 151)
+    if prompt_end < 0:
+        return "", ""
+    continuation_end = text.rfind(" ", prompt_end + 100, prompt_end + 151)
+    if continuation_end < 0:
+        return "", ""
+    return text[: prompt_end + 1], text[prompt_end + 1 : continuation_end]
+
+
+def _is_reference_pair_candidate(prompt: str, continuation: str) -> bool:
+    text = prompt + continuation
+    if any(char.isdigit() for char in text):
+        return False
+    if any(marker in text for marker in ("@", "(", ")", "[", "]", "=", "–")):
+        return False
+    punctuation = sum(text.count(mark) for mark in (",", ";", ":", '"', "'"))
+    if punctuation > 8:
+        return False
+    words = text.split()
+    if len(words) < 35:
+        return False
+    short_caps = sum(1 for word in words if len(word) > 1 and word.isupper())
+    return short_caps <= 2
 
 
 class FullExecutionScheduler(Scheduler):
@@ -221,16 +256,262 @@ class FullExecutionScheduler(Scheduler):
         )
 
 
-def _fallback_prompts(n_prompts: int) -> list[str]:
-    seeds = [
-        "ComputeOS studies adaptive inference scheduling for transformer models.",
-        "Runtime telemetry can expose when additional layers have diminishing returns.",
-        "A research framework should make scheduling policies easy to compare.",
-        "Counterfactual replay estimates what alternative compute plans might have done.",
-        "Predictive value scheduling treats inference as an optimal stopping problem.",
+def _fallback_pairs(n_prompts: int) -> list[tuple[str, str]]:
+    pairs = [
+        (
+            'The capital city of France is',
+            'Paris, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Germany is',
+            'Berlin, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Italy is',
+            'Rome, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Spain is',
+            'Madrid, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Portugal is',
+            'Lisbon, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Japan is',
+            'Tokyo, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Canada is',
+            'Ottawa, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Australia is',
+            'Canberra, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Brazil is',
+            'Brasilia, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Egypt is',
+            'Cairo, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of India is',
+            'New Delhi, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of China is',
+            'Beijing, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Russia is',
+            'Moscow, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Mexico is',
+            'Mexico City, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Argentina is',
+            'Buenos Aires, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Chile is',
+            'Santiago, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Peru is',
+            'Lima, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Colombia is',
+            'Bogota, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Norway is',
+            'Oslo, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Sweden is',
+            'Stockholm, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Finland is',
+            'Helsinki, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Denmark is',
+            'Copenhagen, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Ireland is',
+            'Dublin, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Greece is',
+            'Athens, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Turkey is',
+            'Ankara, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Poland is',
+            'Warsaw, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Austria is',
+            'Vienna, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Hungary is',
+            'Budapest, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Romania is',
+            'Bucharest, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Bulgaria is',
+            'Sofia, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Thailand is',
+            'Bangkok, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Vietnam is',
+            'Hanoi, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Indonesia is',
+            'Jakarta, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Malaysia is',
+            'Kuala Lumpur, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Singapore is',
+            'Singapore, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Kenya is',
+            'Nairobi, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Ethiopia is',
+            'Addis Ababa, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Morocco is',
+            'Rabat, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Ghana is',
+            'Accra, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Nigeria is',
+            'Abuja, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of South Africa is',
+            'Pretoria, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of New Zealand is',
+            'Wellington, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of South Korea is',
+            'Seoul, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Philippines is',
+            'Manila, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Pakistan is',
+            'Islamabad, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Bangladesh is',
+            'Dhaka, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Saudi Arabia is',
+            'Riyadh, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Israel is',
+            'Jerusalem, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
+        (
+            'The capital city of Czech Republic is',
+            'Prague, a national center for government, transportation, education, culture, '
+            'public services, and international visitors.',
+        ),
+        (
+            'The capital city of Netherlands is',
+            'Amsterdam, a national center for government, transportation, education, '
+            'culture, public services, and international visitors.',
+        ),
     ]
-    return [seeds[index % len(seeds)] for index in range(n_prompts)]
-
+    if len(pairs) != 50:
+        raise RuntimeError("Fallback reference dataset must contain exactly 50 pairs.")
+    return [pairs[index % len(pairs)] for index in range(n_prompts)]
 
 def _load_model(
     model_name: str,
@@ -298,21 +579,21 @@ def _print_table(results: dict[str, object]) -> None:
     if not isinstance(conditions, dict):
         return
     table = Table(title="ComputeOS PVS Latency/Quality Sweep")
-    table.add_column("Condition")
-    table.add_column("Latency ms")
-    table.add_column("PPL")
-    table.add_column("Layers")
-    table.add_column("Early exits")
-    table.add_column("Exit layer")
-    table.add_column("Latency delta")
-    table.add_column("PPL delta")
+    table.add_column("Condition", no_wrap=True)
+    table.add_column("Latency ms", no_wrap=True)
+    table.add_column("Reference PPL", no_wrap=True)
+    table.add_column("Layers", no_wrap=True)
+    table.add_column("Early exits", no_wrap=True)
+    table.add_column("Exit layer", no_wrap=True)
+    table.add_column("Latency delta", no_wrap=True)
+    table.add_column("PPL delta", no_wrap=True)
     for name, raw in conditions.items():
         row = raw if isinstance(raw, dict) else {}
         table.add_row(
             str(name),
-            f"{float(row.get('mean_latency_ms', 0.0)):.2f} +/- "
+            f"{float(row.get('mean_latency_ms', 0.0)):.2f} ± "
             f"{float(row.get('std_latency_ms', 0.0)):.2f}",
-            f"{float(row.get('mean_perplexity', 0.0)):.3f} +/- "
+            f"{float(row.get('mean_perplexity', 0.0)):.2f} ± "
             f"{float(row.get('std_perplexity', 0.0)):.3f}",
             f"{float(row.get('mean_layers_executed', 0.0)):.2f}",
             f"{float(row.get('mean_early_exits', 0.0)):.2f}",

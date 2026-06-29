@@ -10,25 +10,28 @@ from statistics import mean
 from time import perf_counter
 
 from rich.console import Console
-from sweep_latency_quality import FullExecutionScheduler, _load_model, _sample_prompts
+from sweep_latency_quality import (
+    FullExecutionScheduler,
+    _load_model,
+    _make_pvs_scheduler,
+    _sample_prompt_continuation_pairs,
+)
 
-from computeos.benchmarks.base import BenchmarkItem
-from computeos.benchmarks.perplexity import PerplexityBenchmark
+from computeos.benchmarks.perplexity import ReferencePerplexityBenchmark
 from computeos.config.schema import ExecutionConfig, TelemetryConfig
 from computeos.execution.hf_controlled import HFControlledEngine
 from computeos.replay.counterfactual_engine import CounterfactualEngine
 from computeos.replay.scenario import CounterfactualScenario, ScenarioType
 from computeos.replay.trace_loader import TraceLoader
-from computeos.scheduling.pvs import PredictiveValueScheduler, PVSResourceBudgets
 
 
 def main() -> None:
     """Run CRI validation and write ``outputs/cri_validation.json``."""
 
     args = _parse_args()
-    prompts = _sample_prompts(args.n_prompts)
+    pairs = _sample_prompt_continuation_pairs(args.n_prompts)
     model, tokenizer, model_name = _load_model(args.model)
-    benchmark = PerplexityBenchmark(prompts=prompts)
+    benchmark = ReferencePerplexityBenchmark(pairs=pairs, max_continuation_tokens=5)
     telemetry_config = TelemetryConfig(capture_memory=True)
     trace_loader = TraceLoader()
     cri = CounterfactualEngine()
@@ -38,19 +41,22 @@ def main() -> None:
         scheduler_name="static",
     )
     per_prompt: list[dict[str, float | int]] = []
+    warmup_engine = HFControlledEngine(
+        model=model,
+        tokenizer=tokenizer,
+        model_name=model_name,
+        scheduler=FullExecutionScheduler(),
+        execution_config=ExecutionConfig(max_new_tokens=args.max_new_tokens, use_cache=False),
+        telemetry_config=telemetry_config,
+    )
+    warmup_engine.generate(pairs[0][0])
 
-    for prompt_index, prompt in enumerate(prompts):
+    for prompt_index, (prompt, continuation) in enumerate(pairs):
         pvs_engine = HFControlledEngine(
             model=model,
             tokenizer=tokenizer,
             model_name=model_name,
-            scheduler=PredictiveValueScheduler(
-                budgets=PVSResourceBudgets(
-                    max_latency_ms=250.0,
-                    max_compute_units=256.0,
-                    min_net_value=0.0,
-                )
-            ),
+            scheduler=_make_pvs_scheduler("pvs_medium"),
             execution_config=ExecutionConfig(max_new_tokens=args.max_new_tokens, use_cache=False),
             telemetry_config=telemetry_config,
         )
@@ -68,10 +74,11 @@ def main() -> None:
         )
         started_at = perf_counter()
         baseline_execution = baseline_engine.generate(prompt)
-        actual_latency_ms = (perf_counter() - started_at) * 1000.0
-        actual_perplexity = float(
-            benchmark.score(BenchmarkItem(prompt=prompt), baseline_execution) or 0.0
+        _wall_latency_ms = (perf_counter() - started_at) * 1000.0
+        actual_latency_ms = sum(
+            max(0.0, layer.latency_ms) for layer in baseline_execution.telemetry.layers
         )
+        actual_perplexity = benchmark.score_pair(baseline_engine, prompt, continuation)
         cri_predicted_perplexity = _perplexity_proxy(predicted.predicted_quality_proxy)
         per_prompt.append(
             {
@@ -92,7 +99,7 @@ def main() -> None:
         for row in per_prompt
     )
     payload: dict[str, object] = {
-        "n_prompts": len(prompts),
+        "n_prompts": len(pairs),
         "latency_mae_ms": latency_mae,
         "perplexity_mae": perplexity_mae,
         "per_prompt": per_prompt,

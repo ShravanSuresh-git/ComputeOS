@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from computeos.benchmarks.base import Benchmark, BenchmarkItem, BenchmarkResult
 from computeos.execution.engine import ExecutionResult, InferenceEngine
 from computeos.scheduling.decision import SchedulerAction
+
+if TYPE_CHECKING:
+    from computeos.execution.hf_controlled import HFControlledEngine
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,44 @@ class PerplexityBenchmark(Benchmark):
                 )
             )
         return results
+
+
+@dataclass(frozen=True)
+class ReferencePerplexityBenchmark:
+    """Perplexity of ground-truth continuation tokens given a prompt.
+
+    Unlike `PerplexityBenchmark`, which scores greedily generated tokens against
+    themselves, this benchmark teacher-forces a reference continuation and
+    measures how well the model predicts actual next tokens.
+    """
+
+    pairs: list[tuple[str, str]]
+    max_continuation_tokens: int = 50
+
+    def score_pair(
+        self,
+        engine: HFControlledEngine,
+        prompt: str,
+        continuation: str,
+    ) -> float:
+        """Score one prompt/reference pair with reference perplexity."""
+
+        log_probs = engine.score_continuation(
+            prompt,
+            continuation,
+            max_tokens=self.max_continuation_tokens,
+        )
+        if not log_probs:
+            return float("inf")
+        return math.exp(-sum(log_probs) / len(log_probs))
+
+    def run(self, engine: HFControlledEngine) -> list[tuple[str, float]]:
+        """Score every configured pair and return prompt/perplexity rows."""
+
+        return [
+            (prompt, self.score_pair(engine, prompt, continuation))
+            for prompt, continuation in self.pairs
+        ]
 
 
 def _early_exits_applied(execution: ExecutionResult) -> int:
