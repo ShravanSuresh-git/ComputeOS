@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from collections.abc import Callable
 from time import perf_counter
 from typing import TYPE_CHECKING
@@ -42,6 +43,7 @@ class HookedTransformerMonitor:
         self._starts: dict[str, float] = {}
         self._step_index = 0
         self._process = psutil.Process()
+        self._rng = random.Random(0)
 
     def __enter__(self) -> HookedTransformerMonitor:
         self.register()
@@ -77,7 +79,16 @@ class HookedTransformerMonitor:
     ) -> Callable[[nn.Module, tuple[object, ...], object], None]:
         def hook(module: nn.Module, _inputs: tuple[object, ...], output: object) -> None:
             started_at = self._starts.pop(name, perf_counter())
+            if self._telemetry_config.sample_rate < 1.0:
+                if self._rng.random() >= self._telemetry_config.sample_rate:
+                    self._step_index += 1
+                    return
             latency_ms = (perf_counter() - started_at) * 1000.0
+            raw_entropy = (
+                attention_entropy(output)
+                if self._telemetry_config.capture_attention_entropy
+                else None
+            )
             layer_telemetry = LayerTelemetry(
                 layer_name=name,
                 layer_type=module.__class__.__name__,
@@ -85,9 +96,8 @@ class HookedTransformerMonitor:
                 activation_stats=activation_stats(output)
                 if self._telemetry_config.capture_activations
                 else None,
-                attention_entropy=attention_entropy(output)
-                if self._telemetry_config.capture_attention_entropy
-                else None,
+                attention_entropy=raw_entropy,
+                attention_entropy_available=raw_entropy is not None,
                 memory_allocated_bytes=_memory_allocated()
                 if self._telemetry_config.capture_memory
                 else None,

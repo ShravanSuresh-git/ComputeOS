@@ -363,7 +363,13 @@ def calibrate_weights(
 ) -> PVSValueWeights:
     """Fit PVS value weights from oracle utilities via non-negative least squares."""
 
-    from scipy.optimize import nnls
+    try:
+        from scipy.optimize import nnls
+    except ImportError as exc:
+        raise ImportError(
+            "calibrate_weights() requires scipy. "
+            "Install it with: pip install 'computeos[dev]' or pip install scipy"
+        ) from exc
 
     from computeos.replay.oracle_scheduler import OracleObjective, OracleScheduler
 

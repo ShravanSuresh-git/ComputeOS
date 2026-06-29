@@ -10,6 +10,7 @@ from computeos.config.schema import ExecutionConfig, TelemetryConfig
 from computeos.execution.controlled import ControlledForwardRuntime, RuntimeBudget
 from computeos.execution.engine import InferenceEngine
 from computeos.scheduling.base import Scheduler
+from computeos.scheduling.confidence import ConfidenceScheduler
 from computeos.scheduling.context import SchedulerContext
 from computeos.scheduling.decision import SchedulerAction, SchedulerDecision
 
@@ -139,6 +140,41 @@ class ControlledRuntimeTests(unittest.TestCase):
 
         self.assertTrue(result.telemetry.metadata["early_exit_applied"])
         self.assertEqual(result.telemetry.metadata["tokens_generated"], 1)
+
+    def test_confidence_scores_available_during_generation(self) -> None:
+        engine = InferenceEngine(
+            model=FakeCausalLM(),
+            tokenizer=FakeTokenizer(),
+            model_name="fake",
+            scheduler=ConfidenceScheduler(threshold=0.0),
+            execution_config=ExecutionConfig(max_new_tokens=4),
+            telemetry_config=TelemetryConfig(),
+        )
+
+        result = engine.generate("hello")
+
+        self.assertTrue(result.telemetry.metadata["early_exit_applied"])
+
+    def test_controlled_runtime_exposes_capabilities(self) -> None:
+        runtime = ControlledForwardRuntime(
+            nn.Sequential(CountingLayer(1.0)),
+            DecisionScheduler({}),
+        )
+
+        self.assertTrue(runtime.capabilities.supports_skip_layer)
+        self.assertTrue(runtime.capabilities.supports_early_exit)
+
+    def test_warm_up_runs_without_error(self) -> None:
+        engine = InferenceEngine(
+            model=FakeCausalLM(),
+            tokenizer=FakeTokenizer(),
+            model_name="fake",
+            scheduler=DecisionScheduler({}),
+            execution_config=ExecutionConfig(max_new_tokens=1, warmup_runs=1),
+            telemetry_config=TelemetryConfig(),
+        )
+
+        engine.warm_up("test")
 
 
 if __name__ == "__main__":

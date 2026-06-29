@@ -57,6 +57,20 @@ class HookTests(unittest.TestCase):
         self.assertEqual(len(scheduler.contexts), 2)
         self.assertIsNotNone(collector.model_telemetry.layers[0].activation_stats)
 
+    def test_sample_rate_zero_records_no_layers(self) -> None:
+        model = TinyTransformerLikeModel()
+        scheduler = RecordingScheduler()
+        collector = TelemetryCollector(model_name="tiny")
+        with HookedTransformerMonitor(
+            model=model,
+            scheduler=scheduler,
+            collector=collector,
+            telemetry_config=TelemetryConfig(sample_rate=0.0),
+        ):
+            model(torch.ones(2, 4))
+
+        self.assertEqual(len(collector.model_telemetry.layers), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 """Benchmark interfaces and implementations."""
 
 from computeos.benchmarks.base import Benchmark, BenchmarkItem, BenchmarkResult
+from computeos.benchmarks.controlled import ControlledBenchmarkRunner
 from computeos.benchmarks.perplexity import PerplexityBenchmark
 from computeos.benchmarks.prompt_smoke import PromptSmokeBenchmark
 from computeos.benchmarks.registry import BenchmarkRegistry, default_benchmark_registry
@@ -13,6 +14,7 @@ __all__ = [
     "BenchmarkRegistry",
     "BenchmarkResult",
     "BenchmarkReportRow",
+    "ControlledBenchmarkRunner",
     "PerplexityBenchmark",
     "PromptSmokeBenchmark",
     "WikitextPerplexityBenchmark",

@@ -3,13 +3,18 @@ from __future__ import annotations
 import math
 import unittest
 
+import torch.nn as nn
+
 from computeos.benchmarks.base import BenchmarkItem, BenchmarkResult
+from computeos.benchmarks.controlled import ControlledBenchmarkRunner
 from computeos.benchmarks.perplexity import PerplexityBenchmark
 from computeos.benchmarks.registry import default_benchmark_registry
 from computeos.benchmarks.reporting import export_benchmark_report, rows_from_results
 from computeos.benchmarks.wikitext import WikitextPerplexityBenchmark
 from computeos.config.schema import BenchmarkConfig
+from computeos.execution.controlled import ControlledForwardRuntime
 from computeos.execution.engine import ExecutionResult
+from computeos.scheduling.random_scheduler import RandomScheduler
 from computeos.telemetry.metrics import ModelTelemetry
 
 
@@ -105,6 +110,19 @@ class BenchmarkTests(unittest.TestCase):
 
         self.assertAlmostEqual(result.score or 0.0, math.exp(0.5), places=4)
         self.assertEqual(result.metadata["tokens_generated"], 3)
+
+    def test_controlled_benchmark_runner_produces_results(self) -> None:
+        model = nn.Sequential(nn.Linear(4, 4), nn.Linear(4, 4))
+        runtime = ControlledForwardRuntime(
+            model=model,
+            scheduler=RandomScheduler(exit_prob=0.0),
+        )
+        benchmark = PerplexityBenchmark(prompts=["test"])
+
+        results = ControlledBenchmarkRunner(runtime, benchmark).run()
+
+        self.assertEqual(len(results), 1)
+        self.assertGreaterEqual(results[0].metadata["layers_executed"], 0)
 
 
 if __name__ == "__main__":

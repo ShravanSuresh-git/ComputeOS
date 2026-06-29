@@ -4,6 +4,7 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from computeos.benchmarks.perplexity import PerplexityBenchmark
 from computeos.config.schema import SchedulerConfig
@@ -17,6 +18,7 @@ from computeos.telemetry.metrics import ActivationStats, LayerTelemetry, ModelTe
 class FakeComparisonEngine:
     def __init__(self) -> None:
         self._scheduler = default_scheduler_registry().create(SchedulerConfig(name="heuristic"))
+        self._execution_config = SimpleNamespace(n_runs=1, seed=42)
 
     def generate(self, prompt: str) -> ExecutionResult:
         telemetry = ModelTelemetry(model_name="fake")
@@ -81,6 +83,19 @@ class ComparisonTests(unittest.TestCase):
             self.assertEqual(len(rows), 4)
             self.assertIn("scheduler", rows[0])
             self.assertIn("normalized_regret", rows[0])
+
+    def test_n_runs_adds_std_fields(self) -> None:
+        registry = default_scheduler_registry()
+        engine = FakeComparisonEngine()
+        engine._execution_config = SimpleNamespace(n_runs=2, seed=42)
+        report = PolicyComparisonRunner(
+            schedulers=[("heuristic", registry.create(SchedulerConfig(name="heuristic")))],
+            benchmark=PerplexityBenchmark(prompts=["a"]),
+            engine=engine,
+        ).run()
+
+        self.assertIn("score_std", report.rows[0])
+        self.assertIn("latency_std_ms", report.rows[0])
 
 
 if __name__ == "__main__":

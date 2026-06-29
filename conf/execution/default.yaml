@@ -2,3 +2,5 @@ max_new_tokens: 32
 use_cache: true
 seed: 17
 autocast: false
+warmup_runs: 0
+n_runs: 1

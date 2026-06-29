@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sys
 import unittest
+from unittest.mock import patch
 
 from computeos.replay.trace_loader import ReplayTrace, TraceLoader
 from computeos.scheduling.decision import SchedulerAction, SchedulerDecision
@@ -63,6 +65,11 @@ class PVSCalibrationTests(unittest.TestCase):
         self.assertIsInstance(weights, PVSValueWeights)
         self.assertAlmostEqual(sum(values), 1.0)
         self.assertTrue(all(value >= 0.0 for value in values))
+
+    def test_calibrate_weights_raises_helpful_error_without_scipy(self) -> None:
+        with patch.dict(sys.modules, {"scipy": None, "scipy.optimize": None}):
+            with self.assertRaisesRegex(ImportError, "scipy"):
+                calibrate_weights([_trace(0.0)])
 
 
 if __name__ == "__main__":

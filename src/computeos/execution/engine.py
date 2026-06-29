@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid as _uuid
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
@@ -62,7 +63,10 @@ class InferenceEngine:
 
         torch.manual_seed(self._execution_config.seed)
         self._scheduler.reset()
-        collector = TelemetryCollector(model_name=self._model_name)
+        collector = TelemetryCollector(
+            model_name=self._model_name,
+            request_id=str(_uuid.uuid4()),
+        )
         inputs = self._tokenizer(prompt, return_tensors="pt")
         device = _model_device(self._model)
         inputs = {key: value.to(device) for key, value in inputs.items()}
@@ -96,6 +100,10 @@ class InferenceEngine:
                     )
                     next_token_logits = outputs.logits[:, -1, :]
                     all_scores.append(next_token_logits.detach())
+                    live_confidence = float(
+                        torch.softmax(next_token_logits.detach().float(), dim=-1).max().item()
+                    )
+                    collector.push_confidence_score(live_confidence)
                     max_log_prob = torch.log_softmax(next_token_logits.float(), dim=-1).max()
                     log_prob_per_token.append(float(max_log_prob.item()))
                     next_token_id = int(next_token_logits.argmax(dim=-1).item())
@@ -160,16 +168,26 @@ class InferenceEngine:
         )
         telemetry.metadata["early_exit_applied"] = early_exit_applied
         telemetry.metadata["tokens_generated"] = len(generated_ids)
+        telemetry.metadata["token_indices"] = list(range(len(generated_ids)))
         telemetry.metadata["log_prob_per_token"] = log_prob_per_token
         telemetry.metadata["all_scores_raw"] = log_prob_per_token
 
-        generated_text = _decode_text(self._tokenizer, generated_ids)
+        generated_text: str = str(
+            self._tokenizer.decode(generated_ids, skip_special_tokens=True)
+        )
         return ExecutionResult(
             prompt=prompt,
             generated_text=generated_text,
             telemetry=telemetry,
             raw_outputs={"sequences": _sequence_tensor(prompt_input_ids, generated_ids)},
         )
+
+    def warm_up(self, prompt: str | None = None) -> None:
+        """Run warm-up passes to stabilize GPU kernels before timed benchmarks."""
+
+        warmup_prompt = prompt or "warm up"
+        for _ in range(self._execution_config.warmup_runs):
+            self.generate(warmup_prompt)
 
 
 class _MaybeAutocast:

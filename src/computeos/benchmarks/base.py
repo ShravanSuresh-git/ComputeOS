@@ -37,6 +37,8 @@ class Benchmark(ABC):
     def run(self, engine: InferenceEngine) -> list[BenchmarkResult]:
         """Run all benchmark items through an inference engine."""
 
+        if getattr(getattr(engine, "_execution_config", None), "warmup_runs", 0) > 0:
+            engine.warm_up()
         results: list[BenchmarkResult] = []
         for item in self.items():
             execution = engine.generate(item.prompt)

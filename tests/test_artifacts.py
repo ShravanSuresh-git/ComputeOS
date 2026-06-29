@@ -44,6 +44,16 @@ class ArtifactStoreTests(unittest.TestCase):
                 rows = list(csv.DictReader(file))
             self.assertEqual(rows[0]["scheduler"], "heuristic")
 
+    def test_snapshot_report_writes_csv_and_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ArtifactStore(Path(temp_dir), run_id="run")
+            report = ComparisonReport(rows=[{"scheduler": "pvs", "prompt": "hello"}])
+
+            store.snapshot_report(report)
+
+            self.assertTrue((store.run_dir / "report.csv").exists())
+            self.assertTrue((store.run_dir / "report.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

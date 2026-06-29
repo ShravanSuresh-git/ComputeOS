@@ -2,7 +2,10 @@
 
 ## Critical
 
-### Scheduler Actions Are Not Enforced
+### ~~Scheduler Actions Are Not Enforced~~
+
+Resolved: `EARLY_EXIT` is enforced in `InferenceEngine`; `SKIP_LAYER` and
+budgets are enforced in `ControlledForwardRuntime`.
 
 - Category: runtime correctness
 - Issue: `EARLY_EXIT`, `SKIP_LAYER`, and `ADJUST_CACHE` can be emitted but are
@@ -10,7 +13,10 @@
 - Risk: research results could confuse requested actions with applied actions.
 - Effort: 2-4 weeks for an action result layer and one enforceable action.
 
-### No Backend Capability Model
+### ~~No Backend Capability Model~~
+
+Resolved: `BackendCapabilities` was added to `execution/__init__.py` and flows
+through all `SchedulerContext` objects.
 
 - Category: runtime architecture
 - Issue: schedulers cannot know what the backend supports.
@@ -25,7 +31,9 @@
 - Risk: ComputeOS remains observational.
 - Effort: 3-6 weeks for a controlled PyTorch backend for one model family.
 
-### No Benchmark Quality Scoring
+### ~~No Benchmark Quality Scoring~~
+
+Resolved: `PerplexityBenchmark` now provides per-token log-prob scoring.
 
 - Category: research validity
 - Issue: benchmarks run prompts but do not score adaptive quality.
@@ -49,21 +57,28 @@
 - Risk: plugin APIs become hard to stabilize.
 - Effort: 1 week for event types and compatibility adapters.
 
-### `TelemetryConfig.enabled` and `sample_rate` Are Not Honored
+### ~~`TelemetryConfig.enabled` and `sample_rate` Are Not Honored~~
+
+Partially resolved: `sample_rate` is now honored in `HookedTransformerMonitor`.
+`enabled` still does nothing; tracked below.
 
 - Category: API correctness
 - Issue: config advertises controls that do not affect runtime.
 - Risk: user confusion and avoidable overhead.
 - Effort: 1-2 days for basic behavior, 1 week for robust sampling.
 
-### Token Confidence Is Post-Hoc
+### ~~Token Confidence Is Post-Hoc~~
+
+Resolved: `push_confidence_score()` updates scores online during the decode loop.
 
 - Category: online scheduling
 - Issue: token confidence is computed after generation, not during scheduling.
 - Risk: confidence-aware policies cannot operate online.
 - Effort: 2-4 weeks depending on backend control.
 
-### No Experiment Artifact Store
+### ~~No Experiment Artifact Store~~
+
+Resolved: `ArtifactStore` snapshots config, environment, telemetry, and reports.
 
 - Category: reproducibility
 - Issue: runs do not snapshot resolved config, environment, metrics, and traces.
@@ -114,14 +129,48 @@
 - Risk: failed experiments are harder to diagnose.
 - Effort: 2-4 days.
 
-### Mypy Strict Mode Is Configured But Not Run In CI
+### `ADJUST_CACHE` Is Not Enforced
+
+- Category: runtime correctness
+- Issue: `SchedulerAction.ADJUST_CACHE` can be emitted but no backend applies it.
+- Risk: misleading for cache-aware scheduling research.
+- Effort: 2-4 weeks; requires KV cache abstraction in the decode loop.
+
+### No Standard Downstream Task Evals
+
+- Category: research validity
+- Issue: only perplexity is available; task accuracy (MMLU, HellaSwag, etc.) is
+  not connected to any benchmark.
+- Risk: claims about quality preservation are not verifiable.
+- Effort: 2-4 weeks for multiple-choice eval harness.
+
+### `TelemetryConfig.enabled` Does Nothing
+
+- Category: API correctness
+- Issue: setting `enabled=False` does not disable telemetry collection.
+- Risk: user confusion.
+- Effort: 1 day.
+
+### Paper Experiment Sections Are Placeholders
+
+- Category: research output
+- Issue: `paper/paper.md` sections 8 and 9 contain no measured results.
+- Risk: not submittable until filled.
+- Effort: run `examples/compare_schedulers.py` on a real model, collect results,
+  and fill the sections.
+
+### ~~Mypy Strict Mode Is Configured But Not Run In CI~~
+
+Resolved: CI now runs `mypy src/computeos --strict` as a required step.
 
 - Category: quality
 - Issue: `pyproject.toml` configures strict mypy, CI only runs tests.
 - Risk: type regressions go unnoticed.
 - Effort: 1 day after resolving type issues.
 
-### Ruff Is Documented But Not Run In CI
+### ~~Ruff Is Documented But Not Run In CI~~
+
+Resolved: CI now runs `ruff check src tests examples`.
 
 - Category: quality
 - Issue: README and CONTRIBUTING mention Ruff, CI does not run it.

@@ -38,7 +38,22 @@ def compute_regret(
     return SchedulerRegret(
         token_regret=tuple(regrets),
         sequence_regret=sequence_regret,
-        batch_regret=sequence_regret,
+        batch_regret=sequence_regret / length,
         average_regret=sequence_regret / length,
         normalized_regret=normalized,
+    )
+
+
+def aggregate_batch_regret(regrets: list[SchedulerRegret]) -> SchedulerRegret:
+    """Average regret across a batch of sequences for multi-run reporting."""
+
+    if not regrets:
+        return SchedulerRegret((), 0.0, 0.0, 0.0, 0.0)
+    count = len(regrets)
+    return SchedulerRegret(
+        token_regret=(),
+        sequence_regret=sum(regret.sequence_regret for regret in regrets) / count,
+        batch_regret=sum(regret.batch_regret for regret in regrets) / count,
+        average_regret=sum(regret.average_regret for regret in regrets) / count,
+        normalized_regret=sum(regret.normalized_regret for regret in regrets) / count,
     )

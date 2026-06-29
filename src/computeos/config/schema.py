@@ -49,6 +49,8 @@ class ExecutionConfig:
     use_cache: bool = True
     seed: int = 17
     autocast: bool = False
+    warmup_runs: int = 0
+    n_runs: int = 1
 
 
 @dataclass(frozen=True)

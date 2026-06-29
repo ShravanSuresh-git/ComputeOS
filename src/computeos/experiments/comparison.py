@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import csv
+import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from computeos.benchmarks.base import Benchmark
+import torch
+
+from computeos.benchmarks.base import Benchmark, BenchmarkResult
 from computeos.execution.engine import InferenceEngine
+from computeos.experiments.pareto import ParetoPoint, pareto_frontier
 from computeos.replay.oracle_scheduler import OracleObjective, OracleScheduler
 from computeos.replay.regret import SchedulerRegret, compute_regret
 from computeos.replay.trace_loader import TraceLoader
@@ -22,6 +26,8 @@ class ComparisonReport:
 
     rows: list[dict[str, Any]] = field(default_factory=list)
     regret_by_scheduler: dict[str, SchedulerRegret] = field(default_factory=dict)
+    pareto_points: list[ParetoPoint] = field(default_factory=list)
+    all_points: list[ParetoPoint] = field(default_factory=list)
 
     def to_csv(self, path: Path) -> None:
         if not self.rows:
@@ -52,17 +58,32 @@ class PolicyComparisonRunner:
 
     def run(self) -> ComparisonReport:
         report = ComparisonReport()
+        n_runs = max(
+            1,
+            int(getattr(getattr(self._engine, "_execution_config", None), "n_runs", 1)),
+        )
         for name, scheduler in self._schedulers:
             original = self._engine._scheduler
             self._engine._scheduler = scheduler
             scheduler.reset()
             try:
-                results = self._benchmark.run(self._engine)
+                all_run_results: list[list[BenchmarkResult]] = []
+                for run_index in range(n_runs):
+                    seed = int(
+                        getattr(
+                            getattr(self._engine, "_execution_config", None),
+                            "seed",
+                            42,
+                        )
+                    )
+                    torch.manual_seed(seed + run_index)
+                    all_run_results.append(self._benchmark.run(self._engine))
             finally:
                 self._engine._scheduler = original
 
-            for result in results:
-                telemetry = result.execution.telemetry
+            for item_results in zip(*all_run_results, strict=True):
+                representative = item_results[0]
+                telemetry = representative.execution.telemetry
                 trace = self._loader.from_telemetry(telemetry)
                 oracle_plan = self._oracle.plan(trace, objective=OracleObjective.MAXIMIZE_UTILITY)
                 oracle_utils = [decision.utility for decision in oracle_plan.decisions]
@@ -75,6 +96,12 @@ class PolicyComparisonRunner:
                         online_utils.append(0.0)
                 regret = compute_regret(oracle_utils, online_utils)
                 report.regret_by_scheduler[name] = regret
+                scores = [result.score for result in item_results if result.score is not None]
+                latencies = [
+                    result.execution.telemetry.total_latency_ms
+                    for result in item_results
+                    if result.execution.telemetry.total_latency_ms is not None
+                ]
 
                 early_exits = sum(
                     1
@@ -83,9 +110,13 @@ class PolicyComparisonRunner:
                 )
                 row: dict[str, Any] = {
                     "scheduler": name,
-                    "prompt": result.item.prompt,
-                    "score": result.score,
+                    "prompt": representative.item.prompt,
+                    "score": representative.score,
                     "latency_ms": telemetry.total_latency_ms,
+                    "score_mean": statistics.mean(scores) if scores else None,
+                    "score_std": statistics.stdev(scores) if len(scores) > 1 else 0.0,
+                    "latency_mean_ms": statistics.mean(latencies) if latencies else None,
+                    "latency_std_ms": statistics.stdev(latencies) if len(latencies) > 1 else 0.0,
                     "tokens_generated": telemetry.metadata.get("tokens_generated", 0),
                     "compute_units": telemetry.metadata.get("compute_units", 0.0),
                     "early_exits": early_exits,
@@ -95,12 +126,30 @@ class PolicyComparisonRunner:
                 row.update(
                     {
                         key: value
-                        for key, value in (result.metadata or {}).items()
+                        for key, value in (representative.metadata or {}).items()
                         if isinstance(value, (int, float, str))
                     }
                 )
                 report.rows.append(row)
 
+        report.all_points = [
+            ParetoPoint(
+                scheduler=str(row.get("scheduler", "")),
+                latency_ms=float(row["latency_ms"]),
+                score=float(row["score"]),
+                row=row,
+            )
+            for row in report.rows
+            if row.get("latency_ms") is not None and row.get("score") is not None
+        ]
+        report.pareto_points = pareto_frontier(report.rows)
         if self._output_dir is not None:
             report.to_csv(self._output_dir / "comparison.csv")
+            from computeos.experiments.artifacts import ArtifactStore
+
+            try:
+                store = ArtifactStore(output_dir=self._output_dir)
+                store.snapshot_report(report)
+            except Exception:
+                pass
         return report

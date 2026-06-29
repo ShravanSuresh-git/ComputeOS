@@ -107,6 +107,11 @@ class ReplayCRITests(unittest.TestCase):
         self.assertAlmostEqual(regret.sequence_regret, 0.9)
         self.assertGreater(regret.normalized_regret, 0.0)
 
+    def test_batch_regret_differs_from_sequence_regret(self) -> None:
+        regret = compute_regret([1.0, 1.0, 1.0], [0.0, 0.0, 0.0])
+
+        self.assertNotEqual(regret.batch_regret, regret.sequence_regret)
+
     def test_counterfactual_experiment_exports_publication_tables(self) -> None:
         trace = TraceLoader().from_telemetry(_telemetry())
         experiment = CounterfactualExperiment()

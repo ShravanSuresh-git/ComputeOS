@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from time import time
 
@@ -29,6 +30,7 @@ class LayerTelemetry:
     latency_ms: float
     activation_stats: ActivationStats | None = None
     attention_entropy: float | None = None
+    attention_entropy_available: bool = False
     memory_allocated_bytes: int | None = None
     memory_reserved_bytes: int | None = None
     process_rss_bytes: int | None = None
@@ -40,6 +42,7 @@ class ModelTelemetry:
     """Telemetry for one end-to-end inference call."""
 
     model_name: str
+    request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     started_at: float = field(default_factory=time)
     layers: list[LayerTelemetry] = field(default_factory=list)
     scheduler_decisions: list[SchedulerDecision] = field(default_factory=list)

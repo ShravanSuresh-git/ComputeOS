@@ -34,6 +34,16 @@ def run_experiment(config: ComputeOSConfig) -> list[dict[str, Any]]:
 
     loaded = load_hf_causal_lm(config.model)
     scheduler = default_scheduler_registry().create(config.scheduler)
+    if config.benchmark.batch_size > 1:
+        import warnings
+
+        warnings.warn(
+            f"BenchmarkConfig.batch_size={config.benchmark.batch_size} is set "
+            "but the engine processes one prompt at a time. "
+            "Results are sequential. Batching support is tracked in TECHNICAL_DEBT.md.",
+            UserWarning,
+            stacklevel=2,
+        )
     engine = InferenceEngine(
         model=loaded.model,
         tokenizer=loaded.tokenizer,
@@ -67,6 +77,7 @@ def run_experiment(config: ComputeOSConfig) -> list[dict[str, Any]]:
 def _snapshot_artifacts(config: ComputeOSConfig, results: list[dict[str, Any]]) -> None:
     try:
         from computeos.experiments.artifacts import ArtifactStore
+        from computeos.experiments.comparison import ComparisonReport
 
         store = ArtifactStore(output_dir=Path("outputs"))
         store.snapshot_config(asdict(config))
@@ -75,6 +86,18 @@ def _snapshot_artifacts(config: ComputeOSConfig, results: list[dict[str, Any]]) 
             telemetry = result.get("telemetry")
             if telemetry is not None:
                 store.snapshot_telemetry(telemetry)
+        comparison_report = ComparisonReport(
+            rows=[
+                {
+                    "scheduler": str(config.scheduler.name),
+                    "prompt": str(result["prompt"]),
+                    "generated_text": str(result["generated_text"]),
+                }
+                for result in results
+                if isinstance(result, dict)
+            ]
+        )
+        store.snapshot_report(comparison_report)
     except Exception:
         return
 

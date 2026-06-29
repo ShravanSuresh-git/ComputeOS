@@ -14,6 +14,7 @@ from time import perf_counter
 import torch
 import torch.nn as nn
 
+from computeos.execution import BackendCapabilities
 from computeos.instrumentation.layers import discover_transformer_layers
 from computeos.scheduling.base import Scheduler
 from computeos.scheduling.context import SchedulerContext
@@ -75,6 +76,16 @@ class ControlledForwardRuntime:
         self._layers = layers
         self._budget = budget or RuntimeBudget()
 
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities(
+            supports_early_exit=True,
+            supports_skip_layer=True,
+            supports_layer_level_control=True,
+            supports_token_level_control=False,
+            supports_adjust_cache=False,
+        )
+
     @torch.inference_mode()
     def run(self, inputs: object) -> ControlledExecutionResult:
         """Run controlled forward execution."""
@@ -114,6 +125,7 @@ class ControlledForwardRuntime:
                     layer_telemetry=None,
                     model_telemetry=collector.model_telemetry,
                     metadata={"decision_point": "pre_layer"},
+                    backend_capabilities=self.capabilities,
                 )
             )
             if pre_decision.action == SchedulerAction.SKIP_LAYER:
@@ -158,12 +170,14 @@ class ControlledForwardRuntime:
             layer_started = perf_counter()
             output = module(output)
             latency_ms = (perf_counter() - layer_started) * 1000.0
+            raw_entropy = attention_entropy(output)
             layer_telemetry = LayerTelemetry(
                 layer_name=name,
                 layer_type=module.__class__.__name__,
                 latency_ms=latency_ms,
                 activation_stats=activation_stats(output),
-                attention_entropy=attention_entropy(output),
+                attention_entropy=raw_entropy,
+                attention_entropy_available=raw_entropy is not None,
             )
             compute_units += _compute_units(layer_telemetry)
             collector.record_layer(layer_telemetry)
@@ -175,6 +189,7 @@ class ControlledForwardRuntime:
                     layer_telemetry=layer_telemetry,
                     model_telemetry=collector.model_telemetry,
                     metadata={"decision_point": "post_layer"},
+                    backend_capabilities=self.capabilities,
                 )
             )
             if post_decision.action == SchedulerAction.EARLY_EXIT:
@@ -212,6 +227,7 @@ class ControlledForwardRuntime:
                     layer_name=name,
                     layer_telemetry=layer_telemetry,
                     model_telemetry=collector.model_telemetry,
+                    backend_capabilities=self.capabilities,
                 ),
                 post_decision,
             )

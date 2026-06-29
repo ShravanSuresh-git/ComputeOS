@@ -5,6 +5,7 @@ import unittest
 
 import torch
 
+from computeos.telemetry.metrics import LayerTelemetry, ModelTelemetry
 from computeos.telemetry.stats import activation_stats, attention_entropy
 
 
@@ -26,6 +27,24 @@ class TelemetryStatsTests(unittest.TestCase):
         assert entropy is not None
         self.assertTrue(math.isfinite(entropy))
         self.assertGreater(entropy, 0.0)
+
+    def test_model_telemetry_has_unique_request_ids(self) -> None:
+        first = ModelTelemetry(model_name="test")
+        second = ModelTelemetry(model_name="test")
+
+        self.assertIsInstance(first.request_id, str)
+        self.assertIsInstance(second.request_id, str)
+        self.assertNotEqual(first.request_id, second.request_id)
+
+    def test_attention_entropy_availability_is_false_when_none(self) -> None:
+        layer = LayerTelemetry(
+            layer_name="layer",
+            layer_type="Linear",
+            latency_ms=1.0,
+            attention_entropy=None,
+        )
+
+        self.assertFalse(layer.attention_entropy_available)
 
 
 if __name__ == "__main__":

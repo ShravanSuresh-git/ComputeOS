@@ -1,4 +1,4 @@
-"""Compare schedulers on tiny-gpt2 with the perplexity benchmark."""
+"""Compare all schedulers on tiny-gpt2 using a shared engine."""
 
 from __future__ import annotations
 
@@ -25,29 +25,42 @@ def main() -> None:
         for name in scheduler_names
     ]
 
+    _, placeholder_scheduler = schedulers[0]
+    engine = InferenceEngine(
+        model=loaded.model,
+        tokenizer=loaded.tokenizer,
+        model_name=loaded.name,
+        scheduler=placeholder_scheduler,
+        execution_config=execution_config,
+        telemetry_config=telemetry_config,
+    )
+
     benchmark = PerplexityBenchmark(
         prompts=["The future of inference is", "Adaptive scheduling allows"],
         limit=2,
     )
 
-    for name, scheduler in schedulers:
-        engine = InferenceEngine(
-            model=loaded.model,
-            tokenizer=loaded.tokenizer,
-            model_name=loaded.name,
-            scheduler=scheduler,
-            execution_config=execution_config,
-            telemetry_config=telemetry_config,
-        )
-        runner = PolicyComparisonRunner(
-            schedulers=[(name, scheduler)],
-            benchmark=benchmark,
-            engine=engine,
-            output_dir=Path("outputs"),
-        )
-        report = runner.run()
-        for row in report.rows:
-            print(row)
+    runner = PolicyComparisonRunner(
+        schedulers=schedulers,
+        benchmark=benchmark,
+        engine=engine,
+        output_dir=Path("outputs"),
+    )
+    report = runner.run()
+    for row in report.rows:
+        print(row)
+
+    if report.pareto_points:
+        print("\nPareto-optimal schedulers (quality vs latency):")
+        for point in report.pareto_points:
+            print(
+                f"  {point.scheduler}: "
+                f"latency={point.latency_ms:.1f}ms  perplexity={point.score:.4f}"
+            )
+        from computeos.experiments.pareto import plot_pareto
+
+        plot_pareto(report.pareto_points, report.all_points, Path("outputs/pareto.png"))
+        print("Pareto plot saved to outputs/pareto.png")
 
 
 if __name__ == "__main__":
